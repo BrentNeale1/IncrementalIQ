@@ -3,6 +3,8 @@ __pycache__/
 *.pyo
 *.nc
 *.db
+*.db-journal
+*.csv
 model_artifacts/
 .pytest_cache/
 .claude/

@@ -1,0 +1,15 @@
+fastapi>=0.110.0
+uvicorn>=0.27.0
+sqlalchemy>=2.0.0
+pandas>=2.1.0
+pandera>=0.18.0
+python-multipart>=0.0.6
+pymc-marketing>=0.18.0
+arviz>=0.18.0
+causalimpact>=0.3.0
+statsmodels>=0.14.0
+scipy>=1.12.0
+google-ads>=24.0.0
+facebook-business>=19.0.0
+google-analytics-data>=0.18.0
+httpx>=0.27.0

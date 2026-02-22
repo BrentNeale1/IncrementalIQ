@@ -10,3 +10,4 @@ model_artifacts/
 dist/
 build/
 .env
+node_modules/

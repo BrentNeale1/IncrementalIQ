@@ -274,9 +274,43 @@ incrementiq/
 │       ├── trust_score.py     # Composite trust score (data quality + model fit + calibration)
 │       └── views.py           # Simple, Intermediate, and Advanced output views
 ├── frontend/
+│   ├── index.html               # HTML entry point (Google Fonts: Playfair Display, DM Sans, DM Mono)
+│   ├── package.json             # React 18, react-router-dom, react-plotly.js, Vite
+│   ├── vite.config.js           # Vite config with /api proxy to localhost:8000
 │   └── src/
-│       ├── views/             # Simple, Intermediate, Advanced views
-│       └── components/        # Charts (Plotly), trust score, recommendation engine
+│       ├── main.jsx             # ReactDOM + BrowserRouter
+│       ├── App.jsx              # Route definitions (/, /upload, /connections, /model/run, /model/runs/:runId/results, /experiments)
+│       ├── api.js               # Fetch wrapper: apiGet, apiPost, apiPostFile, apiDelete
+│       ├── constants.js         # Channel colors/names, trust tiers, Plotly defaults, caveat text
+│       ├── styles/
+│       │   └── index.css        # Full design system — cream/paper aesthetic, all component styles
+│       ├── hooks/
+│       │   └── useApi.js        # useApi(url) data fetching + useMutation() hooks
+│       ├── components/
+│       │   ├── Layout.jsx       # App shell: dark topbar + sidebar (channels, data stats, caveat) + Outlet
+│       │   ├── TrustBadge.jsx   # Green/amber/red trust pill badge
+│       │   ├── StatStrip.jsx    # 4-column stat cards (incremental rev, baseline, trust, actions)
+│       │   ├── ActionCard.jsx   # Recommendation card (scale/test/reduce/geo variants)
+│       │   ├── ChannelTable.jsx # Channel performance matrix with inline bars, CI ranges, confidence pips
+│       │   ├── QualityReport.jsx # Data quality display grid
+│       │   ├── FileDropZone.jsx # CSV drag-drop upload area
+│       │   ├── LoadingSpinner.jsx # Loading state
+│       │   └── charts/
+│       │       ├── RevenueDecomposition.jsx  # Stacked bar chart (Plotly)
+│       │       ├── ContributionDonut.jsx     # Donut chart with baseline (Plotly)
+│       │       ├── ContributionBars.jsx      # Horizontal bars with optional error bars (Plotly)
+│       │       ├── AdstockCurves.jsx         # Decay curves per channel (Plotly)
+│       │       └── SaturationCurves.jsx      # Saturation response curves (Plotly)
+│       └── views/
+│           ├── DashboardPage.jsx       # Stat strip + action cards + charts + channel table
+│           ├── UploadPage.jsx          # CSV upload + quality report display
+│           ├── ConnectionsPage.jsx     # API connection CRUD + sync + merge
+│           ├── ModelRunPage.jsx        # Configure + run MMM + previous runs table
+│           ├── ResultsPage.jsx         # Tabbed: Simple / Intermediate / Advanced
+│           ├── SimpleView.jsx          # Contribution bars + confidence labels + recommendations
+│           ├── IntermediateView.jsx    # Error bars + adstock/saturation curves + parameter tables
+│           ├── AdvancedView.jsx        # Full posteriors + diagnostics + validation + experiments
+│           └── ExperimentsPage.jsx     # Lag detection + spend-scaling + product experiment forms
 ├── pytest.ini                 # Test configuration (slow marker)
 └── tests/
     ├── __init__.py

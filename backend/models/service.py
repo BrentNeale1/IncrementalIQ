@@ -22,6 +22,7 @@ def run_model(
     upload_id: int,
     target: str = "revenue",
     config: ModelConfig | None = None,
+    channel_config: dict | None = None,
 ) -> tuple[ModelRun, ModelResults | None]:
     """Full pipeline: prepare data, fit model, extract results, store in DB.
 
@@ -31,6 +32,7 @@ def run_model(
     upload_id : ID of the upload to model
     target : "revenue" or "orders"
     config : Optional model configuration overrides
+    channel_config : Optional channel filtering/merging config
 
     Returns
     -------
@@ -49,7 +51,7 @@ def run_model(
         )
 
     # Prepare data
-    data = prepare_from_db(db, upload_id, target=target)
+    data = prepare_from_db(db, upload_id, target=target, channel_config=channel_config)
 
     # Create model run record
     model_run = ModelRun(

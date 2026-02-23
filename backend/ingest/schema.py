@@ -6,18 +6,26 @@ VALID_CHANNELS = [
     "google_shopping",
     "google_pmax",
     "google_youtube",
+    "google_demand_gen",
     "meta_feed",
     "meta_instagram",
     "meta_stories",
+    "audience_network",
+    "display",
+    "messenger",
+    "threads",
+    "unknown",
 ]
 
 # Mapping of common variations to canonical channel names
 CHANNEL_ALIASES = {
     "google search": "google_search",
     "googlesearch": "google_search",
+    "search": "google_search",
     "google_ads_search": "google_search",
     "google shopping": "google_shopping",
     "googleshopping": "google_shopping",
+    "shopping": "google_shopping",
     "google_ads_shopping": "google_shopping",
     "google pmax": "google_pmax",
     "googlepmax": "google_pmax",
@@ -37,6 +45,10 @@ CHANNEL_ALIASES = {
     "metastories": "meta_stories",
     "facebook_stories": "meta_stories",
     "instagram_stories": "meta_stories",
+    "demand_gen": "google_demand_gen",
+    "dgen": "google_demand_gen",
+    "google_dgen": "google_demand_gen",
+    "google demand gen": "google_demand_gen",
 }
 
 REQUIRED_COLUMNS = [

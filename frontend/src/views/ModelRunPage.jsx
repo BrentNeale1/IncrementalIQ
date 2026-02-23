@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
-import { apiPost } from '../api';
+import { apiGet, apiPost } from '../api';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 export default function ModelRunPage() {
@@ -22,15 +22,59 @@ export default function ModelRunPage() {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState(null);
 
+  // Channel analysis state
+  const [channelData, setChannelData] = useState(null);
+  const [channelLoading, setChannelLoading] = useState(false);
+  const [selectedChannels, setSelectedChannels] = useState([]);
+  const [mergeMap, setMergeMap] = useState({});
+
+  // Fetch channel analysis when upload changes
+  useEffect(() => {
+    if (!config.upload_id) {
+      setChannelData(null);
+      setSelectedChannels([]);
+      setMergeMap({});
+      return;
+    }
+    setChannelLoading(true);
+    apiGet(`/api/uploads/${config.upload_id}/channels`)
+      .then((data) => {
+        setChannelData(data);
+        setSelectedChannels(data.recommended_config.channels);
+        setMergeMap(data.recommended_config.merge);
+      })
+      .catch(() => setChannelData(null))
+      .finally(() => setChannelLoading(false));
+  }, [config.upload_id]);
+
+  function toggleChannel(ch) {
+    setSelectedChannels((prev) =>
+      prev.includes(ch) ? prev.filter((c) => c !== ch) : [...prev, ch]
+    );
+  }
+
+  function resetToRecommended() {
+    if (!channelData) return;
+    setSelectedChannels(channelData.recommended_config.channels);
+    setMergeMap(channelData.recommended_config.merge);
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (!config.upload_id) return;
     setRunning(true);
     setError(null);
+
+    const channelConfig =
+      channelData && selectedChannels.length > 0
+        ? { channels: selectedChannels, merge: mergeMap }
+        : null;
+
     try {
       const res = await apiPost('/api/model/run', {
         ...config,
         upload_id: Number(config.upload_id),
+        channel_config: channelConfig,
       });
       navigate(`/model/runs/${res.run_id}/results`);
     } catch (err) {
@@ -48,6 +92,24 @@ export default function ModelRunPage() {
   const successUploads = (uploads || []).filter(
     (u) => u.status === 'success' || u.status === 'partial'
   );
+
+  // Build display list: all channels from analysis (post-merge names)
+  const allChannels = channelData
+    ? channelData.channels.map((ch) => ch.name)
+    : [];
+  const droppedSet = new Set(
+    channelData ? channelData.recommended_config.dropped : []
+  );
+  const reasons = channelData ? channelData.recommended_config.reasons : {};
+
+  // Find which source channels merge into each merged name
+  const mergeGroups = {};
+  if (channelData) {
+    for (const [src, dest] of Object.entries(channelData.recommended_config.merge)) {
+      if (!mergeGroups[dest]) mergeGroups[dest] = [];
+      mergeGroups[dest].push(src);
+    }
+  }
 
   return (
     <>
@@ -81,6 +143,122 @@ export default function ModelRunPage() {
                 ))}
               </select>
             </div>
+
+            {/* Channel selection */}
+            {channelLoading && (
+              <div className="form-group">
+                <label className="form-label">Channels</label>
+                <div className="text-sm text-muted">Analyzing channels...</div>
+              </div>
+            )}
+
+            {channelData && !channelLoading && (
+              <div className="form-group">
+                <label className="form-label">
+                  Channels
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={resetToRecommended}
+                    style={{ marginLeft: 12, verticalAlign: 'middle' }}
+                  >
+                    Use recommended
+                  </button>
+                </label>
+                <div className="form-hint" style={{ marginBottom: 8 }}>
+                  Select channels to include in the model. Low-spend channels are
+                  deselected by default to improve fit.
+                </div>
+                <div
+                  style={{
+                    border: '1px solid var(--border)',
+                    borderRadius: 6,
+                    padding: 8,
+                    maxHeight: 280,
+                    overflowY: 'auto',
+                  }}
+                >
+                  {allChannels.map((ch) => {
+                    const info = channelData.channels.find((c) => c.name === ch);
+                    const isDropped = droppedSet.has(ch);
+                    const isMerged = !!mergeGroups[ch];
+                    const isSelected = selectedChannels.includes(ch);
+
+                    return (
+                      <label
+                        key={ch}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '6px 4px',
+                          cursor: 'pointer',
+                          opacity: isSelected ? 1 : 0.55,
+                          borderBottom: '1px solid var(--border)',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleChannel(ch)}
+                        />
+                        <span className="mono" style={{ minWidth: 160 }}>
+                          {ch}
+                          {isMerged && (
+                            <span
+                              className="text-sm text-muted"
+                              style={{ marginLeft: 4 }}
+                            >
+                              (combined)
+                            </span>
+                          )}
+                        </span>
+                        {info && (
+                          <>
+                            <span className="text-sm" style={{ minWidth: 80 }}>
+                              {info.spend_pct}% spend
+                            </span>
+                            <span className="text-sm text-muted">
+                              {info.active_days}/{info.total_days} days
+                            </span>
+                          </>
+                        )}
+                        {isDropped && reasons[ch] && (
+                          <span className="text-sm" style={{ color: 'var(--amber)' }}>
+                            — {reasons[ch]}
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+
+                  {/* Show merge sub-items */}
+                  {Object.entries(mergeGroups).length > 0 && (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        padding: '8px 4px',
+                        borderTop: '1px solid var(--border)',
+                      }}
+                    >
+                      <div className="text-sm text-muted" style={{ marginBottom: 4 }}>
+                        Merged placements:
+                      </div>
+                      {Object.entries(mergeGroups).map(([dest, sources]) => (
+                        <div key={dest} className="text-sm" style={{ paddingLeft: 8 }}>
+                          <span className="mono">{dest}</span> ←{' '}
+                          {sources.map((s) => (
+                            <span key={s} className="mono text-muted" style={{ marginRight: 6 }}>
+                              {s}
+                            </span>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="form-group">
               <label className="form-label">Target Variable</label>

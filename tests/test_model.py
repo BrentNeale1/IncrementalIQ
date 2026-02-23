@@ -370,3 +370,130 @@ class TestModelService:
     def test_missing_upload_raises(self, db_session):
         with pytest.raises(ValueError, match="not found"):
             run_model(db_session, 9999, config=FAST_CONFIG)
+
+
+# ---- channel filtering / merging tests ----
+
+class TestChannelFiltering:
+    def test_channel_merging(self):
+        """Meta placements should merge into a single 'meta' channel."""
+        df = _generate_synthetic_data(
+            days=30,
+            channels=["meta_feed", "meta_instagram", "google_search"],
+        )
+        channel_config = {
+            "merge": {"meta_feed": "meta", "meta_instagram": "meta"},
+            "channels": ["meta", "google_search"],
+        }
+        data = prepare_model_data(df, target="revenue", channel_config=channel_config)
+
+        assert len(data.channel_columns) == 2
+        assert "spend_meta" in data.channel_columns
+        assert "spend_google_search" in data.channel_columns
+        assert "spend_meta_feed" not in data.channel_columns
+        assert "spend_meta_instagram" not in data.channel_columns
+
+    def test_channel_filtering_by_list(self):
+        """Only channels in the explicit list should survive."""
+        df = _generate_synthetic_data(
+            days=30,
+            channels=["google_search", "meta_feed", "google_pmax"],
+        )
+        channel_config = {"channels": ["google_search", "google_pmax"]}
+        data = prepare_model_data(df, target="revenue", channel_config=channel_config)
+
+        assert len(data.channel_columns) == 2
+        assert "spend_google_search" in data.channel_columns
+        assert "spend_google_pmax" in data.channel_columns
+        assert "spend_meta_feed" not in data.channel_columns
+
+    def test_min_spend_pct_filtering(self):
+        """Channels below min_spend_pct should be dropped automatically."""
+        # Create data where one channel has negligible spend
+        base_date = datetime.date(2024, 1, 1)
+        rows = []
+        for day_offset in range(30):
+            d = base_date + datetime.timedelta(days=day_offset)
+            for ch, spend in [("google_search", 200.0), ("meta_feed", 150.0), ("unknown", 0.01)]:
+                rows.append({
+                    "date": d, "channel": ch, "campaign": f"{ch}_c1",
+                    "spend": spend,
+                    "impressions": 100, "clicks": 10,
+                    "in_platform_conversions": 1.0,
+                    "revenue": 500.0, "orders": 5,
+                    "sessions_organic": 200, "sessions_direct": 100,
+                    "sessions_email": 50, "sessions_referral": 30,
+                })
+        df = pd.DataFrame(rows)
+
+        channel_config = {"min_spend_pct": 0.5}
+        data = prepare_model_data(df, target="revenue", channel_config=channel_config)
+
+        channel_names = [c.replace("spend_", "") for c in data.channel_columns]
+        assert "google_search" in channel_names
+        assert "meta_feed" in channel_names
+        assert "unknown" not in channel_names
+
+    def test_recommend_channel_config(self):
+        """recommend_channel_config should merge Meta placements and drop tiny channels."""
+        from backend.models.data_prep import recommend_channel_config
+
+        rng = np.random.default_rng(42)
+        base_date = datetime.date(2024, 1, 1)
+        rows = []
+        channel_spends = {
+            "google_pmax": 500,
+            "google_search": 200,
+            "meta_feed": 100,
+            "meta_instagram": 80,
+            "messenger": 0.01,
+            "unknown": 0.005,
+        }
+        for day_offset in range(30):
+            d = base_date + datetime.timedelta(days=day_offset)
+            for ch, base_spend in channel_spends.items():
+                spend = max(0, rng.normal(base_spend, base_spend * 0.1 + 0.001))
+                rows.append({
+                    "date": d, "channel": ch, "campaign": f"{ch}_c1",
+                    "spend": round(spend, 2),
+                    "impressions": 100, "clicks": 10,
+                    "in_platform_conversions": 1.0,
+                    "revenue": 1000.0, "orders": 10,
+                    "sessions_organic": 200, "sessions_direct": 100,
+                    "sessions_email": 50, "sessions_referral": 30,
+                })
+        df = pd.DataFrame(rows)
+        rec = recommend_channel_config(df)
+
+        # Meta placements should be merged
+        assert "meta_feed" in rec["merge"]
+        assert "meta_instagram" in rec["merge"]
+        assert "messenger" in rec["merge"]
+        assert rec["merge"]["meta_feed"] == "meta"
+
+        # Merged "meta" should be in kept channels
+        assert "meta" in rec["channels"]
+        assert "google_pmax" in rec["channels"]
+        assert "google_search" in rec["channels"]
+
+        # Tiny channels should be dropped (unknown has near-zero spend)
+        assert "unknown" in rec["dropped"]
+
+        # Reasons should be present for dropped channels
+        assert "unknown" in rec["reasons"]
+
+    def test_empty_after_filter_raises(self):
+        """Filtering to no channels should raise ValueError."""
+        df = _generate_synthetic_data(days=30, channels=["google_search"])
+        channel_config = {"channels": ["nonexistent_channel"]}
+        with pytest.raises(ValueError, match="No data remaining"):
+            prepare_model_data(df, target="revenue", channel_config=channel_config)
+
+    def test_no_channel_config_is_backward_compatible(self):
+        """Without channel_config, behaviour is identical to before."""
+        df = _generate_synthetic_data(days=30, channels=["google_search", "meta_feed"])
+        data_default = prepare_model_data(df, target="revenue")
+        data_none = prepare_model_data(df, target="revenue", channel_config=None)
+
+        assert data_default.channel_columns == data_none.channel_columns
+        assert data_default.daily_rows == data_none.daily_rows

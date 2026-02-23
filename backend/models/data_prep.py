@@ -56,6 +56,7 @@ def query_records(db: Session, upload_id: int) -> pd.DataFrame:
 def prepare_model_data(
     df: pd.DataFrame,
     target: str = "revenue",
+    channel_config: dict | None = None,
 ) -> PreparedData:
     """Transform raw records into model-ready X and y.
 
@@ -65,6 +66,10 @@ def prepare_model_data(
          revenue, orders, sessions_organic, sessions_direct, sessions_email,
          sessions_referral
     target : "revenue" or "orders" — the outcome variable
+    channel_config : Optional dict with keys:
+        - "merge": dict mapping source channel names to merged names
+        - "channels": list of channels to include (after merging)
+        - "min_spend_pct": float, auto-drop channels below this % of total spend
 
     Returns
     -------
@@ -75,6 +80,28 @@ def prepare_model_data(
 
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"])
+
+    # --- Apply channel_config: merge → filter ---
+    if channel_config:
+        merge_map = channel_config.get("merge")
+        if merge_map:
+            df["channel"] = df["channel"].replace(merge_map)
+
+        channel_list = channel_config.get("channels")
+        min_spend_pct = channel_config.get("min_spend_pct")
+
+        if channel_list:
+            df = df[df["channel"].isin(channel_list)]
+        elif min_spend_pct is not None:
+            total_spend = df["spend"].sum()
+            if total_spend > 0:
+                spend_by_ch = df.groupby("channel")["spend"].sum()
+                spend_pct = spend_by_ch / total_spend * 100
+                keep = spend_pct[spend_pct >= min_spend_pct].index.tolist()
+                df = df[df["channel"].isin(keep)]
+
+    if df.empty:
+        raise ValueError("No data remaining after channel filtering")
 
     channels = sorted(df["channel"].unique())
 
@@ -131,11 +158,79 @@ def prepare_model_data(
     )
 
 
+META_PLACEMENTS = ["meta_feed", "meta_instagram", "meta_stories",
+                    "audience_network", "messenger", "threads"]
+
+DEFAULT_MIN_SPEND_PCT = 0.5
+
+
+def recommend_channel_config(df: pd.DataFrame) -> dict:
+    """Analyze spend distribution and return a suggested channel_config.
+
+    Returns dict with keys: channels, merge, dropped, reasons.
+    """
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"])
+
+    total_spend = df["spend"].sum()
+    total_days = df["date"].nunique()
+
+    # Build merge map for Meta placements
+    present_meta = [ch for ch in META_PLACEMENTS if ch in df["channel"].values]
+    merge_map = {ch: "meta" for ch in present_meta} if len(present_meta) > 1 else {}
+
+    # Apply merges to compute post-merge spend
+    merged_df = df.copy()
+    if merge_map:
+        merged_df["channel"] = merged_df["channel"].replace(merge_map)
+
+    # Spend stats per channel
+    spend_by_ch = merged_df.groupby("channel")["spend"].sum()
+    days_by_ch = merged_df.groupby("channel")["date"].nunique()
+
+    if total_spend > 0:
+        spend_pct = spend_by_ch / total_spend * 100
+    else:
+        spend_pct = spend_by_ch * 0
+
+    # Drop channels below threshold
+    keep = []
+    dropped = []
+    reasons = {}
+    for ch in sorted(spend_pct.index):
+        pct = spend_pct[ch]
+        if pct < DEFAULT_MIN_SPEND_PCT:
+            dropped.append(ch)
+            reasons[ch] = f"{pct:.1f}% of total spend"
+        else:
+            keep.append(ch)
+
+    # Build channel detail list (pre-filter, all channels)
+    channels_detail = []
+    for ch in sorted(spend_pct.index):
+        channels_detail.append({
+            "name": ch,
+            "total_spend": round(float(spend_by_ch[ch]), 2),
+            "spend_pct": round(float(spend_pct[ch]), 1),
+            "active_days": int(days_by_ch[ch]),
+            "total_days": total_days,
+        })
+
+    return {
+        "channels": keep,
+        "merge": merge_map,
+        "dropped": dropped,
+        "reasons": reasons,
+        "channels_detail": channels_detail,
+    }
+
+
 def prepare_from_db(
     db: Session,
     upload_id: int,
     target: str = "revenue",
+    channel_config: dict | None = None,
 ) -> PreparedData:
     """End-to-end: query DB records and prepare model data."""
     df = query_records(db, upload_id)
-    return prepare_model_data(df, target=target)
+    return prepare_model_data(df, target=target, channel_config=channel_config)

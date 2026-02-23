@@ -18,7 +18,8 @@ app = FastAPI(title="IncrementIQ", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173",
+                    "http://localhost:5174", "http://127.0.0.1:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,6 +35,7 @@ class ModelRunRequest(BaseModel):
     tune: int = 1500
     draws: int = 1000
     target_accept: float = 0.9
+    channel_config: dict | None = None
 
 
 @app.on_event("startup")
@@ -43,9 +45,10 @@ def on_startup():
 
 @app.post("/api/upload")
 async def upload_csv(file: UploadFile, db: Session = Depends(get_db)):
-    """Upload a CSV file for ingestion, validation, and quality assessment."""
-    if not file.filename or not file.filename.endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Only .csv files are accepted.")
+    """Upload a CSV or Excel file for ingestion, validation, and quality assessment."""
+    allowed_extensions = (".csv", ".xlsx", ".xls")
+    if not file.filename or not file.filename.lower().endswith(allowed_extensions):
+        raise HTTPException(status_code=400, detail="Only .csv and .xlsx files are accepted.")
 
     contents = await file.read()
     if len(contents) == 0:
@@ -102,6 +105,33 @@ def get_quality_report(upload_id: int, db: Session = Depends(get_db)):
     return json.loads(report.report_json)
 
 
+@app.get("/api/uploads/{upload_id}/channels")
+def get_channel_analysis(upload_id: int, db: Session = Depends(get_db)):
+    """Analyze channels in an upload and return a recommended config for model fitting."""
+    from backend.models.data_prep import query_records, recommend_channel_config
+
+    upload = db.query(Upload).filter_by(id=upload_id).first()
+    if not upload:
+        raise HTTPException(status_code=404, detail="Upload not found.")
+
+    try:
+        df = query_records(db, upload_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    rec = recommend_channel_config(df)
+
+    return {
+        "channels": rec["channels_detail"],
+        "recommended_config": {
+            "channels": rec["channels"],
+            "merge": rec["merge"],
+            "dropped": rec["dropped"],
+            "reasons": rec["reasons"],
+        },
+    }
+
+
 # --- Model endpoints ---
 
 @app.post("/api/model/run")
@@ -124,7 +154,10 @@ def start_model_run(req: ModelRunRequest, db: Session = Depends(get_db)):
     )
 
     try:
-        model_run, results = run_model(db, req.upload_id, target=req.target, config=config)
+        model_run, results = run_model(
+            db, req.upload_id, target=req.target, config=config,
+            channel_config=req.channel_config,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:

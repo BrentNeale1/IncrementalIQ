@@ -113,7 +113,17 @@ Both `λ` and `α` are estimated as **posterior distributions** per channel — 
 
 ### Contribution decomposition
 
-Channel percentage contributions = posterior mean of (adstock-transformed spend × coefficient) / total explained revenue. Uncertainty propagated from posterior.
+Revenue is decomposed into three categories:
+
+1. **Paid channels** — posterior mean of (adstock-transformed spend × β_c) / total revenue
+2. **Control variables** — posterior mean of (control value × γ_o) / total revenue. Controls include:
+   - `sessions_organic`, `sessions_direct`, `sessions_email`, `sessions_referral`
+   - `ipc_<channel>` (in-platform conversions per channel)
+3. **Baseline** — trend + seasonality (intercept + Fourier terms). This is computed as `100% - channels - controls`.
+
+Each category includes full uncertainty quantification propagated from the posterior. The `ControlPosterior` dataclass mirrors `ChannelPosterior` with gamma coefficient summaries (mean, SD, 94% HDI) and contribution (mean, pct, HDI).
+
+Previously, control contributions were hidden inside "baseline", inflating it to ~97%. Now baseline represents only trend + seasonality, and control contributions (organic sessions, direct sessions, etc.) are surfaced individually.
 
 ### What the model must never do
 
@@ -152,12 +162,15 @@ Channel percentage contributions = posterior mean of (adstock-transformed spend 
 
 ### Simple view (default for account managers)
 - Channel contribution bar chart, plain-language labels
+- Control contribution section ("Traffic Sources") showing organic, direct, email, referral session contributions
 - Recommendation engine: flag underperforming channels, recommend spend-scaling test if intervals are wide
 - No statistical terminology visible
 - Uncertainty expressed as: "High confidence / Moderate confidence / Low confidence — more data needed"
+- Baseline labeled "Trend & Seasonality" (not "organic + direct + other")
 
 ### Intermediate view
-- Contribution chart with visible confidence intervals
+- Contribution chart with visible confidence intervals for both channels and controls
+- Control contributions with contribution mean, HDI range, and gamma coefficient
 - Adstock decay curves per channel
 - Saturation curves
 - Lag summary (days between spend and impact)
@@ -165,6 +178,7 @@ Channel percentage contributions = posterior mean of (adstock-transformed spend 
 
 ### Advanced view
 - Full posterior distribution summaries (mean, SD, 94% HDI — not p-values)
+- Control variable posterior table with gamma mean, SD, 94% HDI, contribution %, and contribution HDI
 - Model fit diagnostics: R², MAPE, posterior predictive check plots
 - Adstock parameter estimates with credible intervals
 - Data quality flags
@@ -224,8 +238,9 @@ Phase 1A uses CSV ingestion only. Do not build API connectors until the core mod
 | 3 | Adstock, lag detection, spend-scaling experiments, product experiment | **Complete** |
 | 4 (advanced) | Advanced output view | **Complete** |
 | 1B | API integrations (Google Ads, Meta, GA4, Shopify, WooCommerce) | **Complete** |
+| 4+ | Control contributions surfaced (organic, direct, email, referral, IPC extracted from baseline into all three views) | **Complete** |
 
-**Current phase:** All phases complete (1A, 1A+, 2, 2+, 3, 4, 5, 1B).
+**Current phase:** All phases complete (1A, 1A+, 2, 2+, 3, 4, 4+, 5, 1B).
 
 ---
 
@@ -255,7 +270,7 @@ incrementiq/
 │   ├── models/
 │   │   ├── __init__.py
 │   │   ├── data_prep.py       # DB → model-ready DataFrame (pivot, aggregate, controls, channel filtering/merging, recommend_channel_config)
-│   │   ├── mmm.py             # MMM config, build, fit, result extraction, mean-prediction R²/MAPE diagnostics (pymc-marketing)
+│   │   ├── mmm.py             # MMM config, build, fit, result extraction (channels + controls), mean-prediction R²/MAPE diagnostics (pymc-marketing)
 │   │   ├── service.py         # Orchestrator: data prep → fit → extract → store (accepts channel_config)
 │   │   └── validation.py      # Holdout testing, posterior predictive checks, sensitivity analysis
 │   ├── experiments/
@@ -276,7 +291,7 @@ incrementiq/
 │   └── outputs/
 │       ├── __init__.py
 │       ├── trust_score.py     # Composite trust score (data quality + model fit + calibration)
-│       └── views.py           # Simple, Intermediate, and Advanced output views
+│       └── views.py           # Simple, Intermediate, and Advanced output views (channels + control contributions)
 ├── frontend/
 │   ├── index.html               # HTML entry point (Google Fonts: Playfair Display, DM Sans, DM Mono)
 │   ├── package.json             # React 18, react-router-dom, react-plotly.js, Vite
@@ -285,7 +300,7 @@ incrementiq/
 │       ├── main.jsx             # ReactDOM + BrowserRouter
 │       ├── App.jsx              # Route definitions (/, /upload, /connections, /model/run, /model/runs/:runId/results, /experiments)
 │       ├── api.js               # Fetch wrapper: apiGet, apiPost, apiPostFile, apiDelete
-│       ├── constants.js         # Channel colors/names, trust tiers, Plotly defaults, caveat text
+│       ├── constants.js         # Channel colors/names, control colors/names, trust tiers, Plotly defaults, caveat text
 │       ├── styles/
 │       │   └── index.css        # Full design system — cream/paper aesthetic, all component styles
 │       ├── hooks/
@@ -295,14 +310,14 @@ incrementiq/
 │       │   ├── TrustBadge.jsx   # Green/amber/red trust pill badge
 │       │   ├── StatStrip.jsx    # 4-column stat cards (incremental rev, baseline, trust, actions)
 │       │   ├── ActionCard.jsx   # Recommendation card (scale/test/reduce/geo variants)
-│       │   ├── ChannelTable.jsx # Channel performance matrix with inline bars, CI ranges, confidence pips
+│       │   ├── ChannelTable.jsx # Channel + control performance matrix with inline bars, CI ranges, confidence pips
 │       │   ├── QualityReport.jsx # Data quality display grid
 │       │   ├── FileDropZone.jsx # CSV/Excel drag-drop upload area (.csv, .xlsx, .xls)
 │       │   ├── LoadingSpinner.jsx # Loading state
 │       │   └── charts/
 │       │       ├── RevenueDecomposition.jsx  # Stacked bar chart (Plotly)
 │       │       ├── ContributionDonut.jsx     # Donut chart with baseline (Plotly)
-│       │       ├── ContributionBars.jsx      # Horizontal bars with optional error bars (Plotly)
+│       │       ├── ContributionBars.jsx      # Horizontal bars for channels + controls with optional error bars (Plotly)
 │       │       ├── AdstockCurves.jsx         # Decay curves per channel (Plotly)
 │       │       └── SaturationCurves.jsx      # Saturation response curves (Plotly)
 │       └── views/
@@ -311,16 +326,16 @@ incrementiq/
 │           ├── ConnectionsPage.jsx     # API connection CRUD + sync + merge
 │           ├── ModelRunPage.jsx        # Configure + run MMM + channel selection UI (smart defaults) + previous runs
 │           ├── ResultsPage.jsx         # Tabbed: Simple / Intermediate / Advanced
-│           ├── SimpleView.jsx          # Contribution bars + confidence labels + recommendations
-│           ├── IntermediateView.jsx    # Error bars + adstock/saturation curves + parameter tables
-│           ├── AdvancedView.jsx        # Full posteriors + diagnostics + validation + experiments
+│           ├── SimpleView.jsx          # Contribution bars (channels + controls) + confidence labels + recommendations
+│           ├── IntermediateView.jsx    # Error bars (channels + controls) + adstock/saturation curves + parameter tables
+│           ├── AdvancedView.jsx        # Full posteriors + control posteriors + diagnostics + validation + experiments
 │           └── ExperimentsPage.jsx     # Lag detection + spend-scaling + product experiment forms
 ├── pytest.ini                 # Test configuration (slow marker)
 └── tests/
     ├── __init__.py
     ├── test_ingest.py         # 37 tests: channel standardisation, CSV reader, quality report, wide format, Excel multi-sheet, full pipeline
-    ├── test_model.py          # 25 tests: data prep, model construction, MCMC fitting, result extraction, service, channel filtering/merging
-    ├── test_outputs.py        # 40 tests: trust score, confidence labels, simple/intermediate/advanced views, recommendations
+    ├── test_model.py          # 25 tests: data prep, model construction, MCMC fitting, result extraction (channels + controls), service, channel filtering/merging
+    ├── test_outputs.py        # 49 tests: trust score, confidence labels, simple/intermediate/advanced views, recommendations, control contributions, control display names
     ├── test_validation.py     # 10 tests: holdout validation, posterior predictive check, sensitivity analysis
     ├── test_experiments.py    # 35 tests: lag detection, product experiment (PMax guard), spend-scaling data prep
     └── test_integrations.py   # 42 tests: connectors, registry, sync service, merge pipeline, DB models

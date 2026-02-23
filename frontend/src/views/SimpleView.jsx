@@ -13,6 +13,7 @@ export default function SimpleView({ runId }) {
   if (!data) return null;
 
   const recs = data.recommendations || [];
+  const controls = data.controls || [];
 
   return (
     <>
@@ -30,12 +31,12 @@ export default function SimpleView({ runId }) {
       )}
 
       <div className="card">
-        <ContributionBars channels={data.channels} />
+        <ContributionBars channels={data.channels} controls={controls} />
       </div>
 
       <div className="card mt-16">
         <div className="card-title">Channel Performance</div>
-        <ChannelTable channels={data.channels} />
+        <ChannelTable channels={data.channels} controls={controls} />
       </div>
 
       <div className="text-xs muted mt-16" style={{ fontStyle: 'italic' }}>

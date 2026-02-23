@@ -16,6 +16,7 @@ export default function IntermediateView({ runId }) {
 
   const trust = data.trust || {};
   const recs = data.recommendations || [];
+  const controls = data.controls || [];
 
   return (
     <>
@@ -32,13 +33,13 @@ export default function IntermediateView({ runId }) {
       </div>
 
       <div className="card">
-        <div className="card-title">Channel Contributions (with 94% HDI)</div>
-        <ContributionBars channels={data.channels} showErrorBars />
+        <div className="card-title">Revenue Decomposition (with 94% HDI)</div>
+        <ContributionBars channels={data.channels} controls={controls} showErrorBars />
       </div>
 
       <div className="card mt-16">
-        <div className="card-title">Channel Performance Matrix</div>
-        <ChannelTable channels={data.channels} showCI />
+        <div className="card-title">Performance Matrix</div>
+        <ChannelTable channels={data.channels} controls={controls} showCI />
       </div>
 
       <div className="grid-2 mt-16">

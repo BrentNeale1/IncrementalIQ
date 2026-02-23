@@ -1,7 +1,7 @@
 """Tests for Phase 4 output views (simple, intermediate, advanced) and trust score."""
 import json
 import pytest
-from backend.models.mmm import ModelResults, ChannelPosterior, ModelDiagnostics
+from backend.models.mmm import ModelResults, ChannelPosterior, ControlPosterior, ModelDiagnostics
 from backend.outputs.trust_score import (
     compute_trust_score,
     compute_data_quality_score,
@@ -17,6 +17,7 @@ from backend.outputs.views import (
     build_advanced_view,
     _confidence_label,
     _channel_display_name,
+    _control_display_name,
     _generate_recommendations,
     OBSERVATIONAL_CAVEAT,
 )
@@ -55,6 +56,31 @@ def _make_channel_posterior(
     return ChannelPosterior(**defaults)
 
 
+def _make_control_posterior(
+    control: str = "sessions_organic",
+    display_name: str = "Organic Sessions",
+    gamma_mean: float = 0.3,
+    gamma_sd: float = 0.05,
+    contribution_pct: float = 15.0,
+    contribution_mean: float = 2500.0,
+    **kwargs,
+) -> ControlPosterior:
+    defaults = dict(
+        control=control,
+        display_name=display_name,
+        gamma_mean=gamma_mean,
+        gamma_sd=gamma_sd,
+        gamma_hdi_3=gamma_mean - 2 * gamma_sd,
+        gamma_hdi_97=gamma_mean + 2 * gamma_sd,
+        contribution_mean=contribution_mean,
+        contribution_pct=contribution_pct,
+        contribution_hdi_3=contribution_mean * 0.7,
+        contribution_hdi_97=contribution_mean * 1.3,
+    )
+    defaults.update(kwargs)
+    return ControlPosterior(**defaults)
+
+
 def _make_diagnostics(**kwargs) -> ModelDiagnostics:
     defaults = dict(
         r_squared_mean=0.85,
@@ -75,8 +101,10 @@ def _make_results(**kwargs) -> ModelResults:
         _make_channel_posterior("spend_google_search", contribution_pct=40),
         _make_channel_posterior("spend_meta_feed", contribution_pct=25),
     ])
+    controls = kwargs.pop("controls", [])
     return ModelResults(
         channel_posteriors=channels,
+        control_posteriors=controls,
         baseline_contribution_pct=kwargs.pop("baseline_pct", 35.0),
         diagnostics=kwargs.pop("diagnostics", _make_diagnostics()),
     )
@@ -489,3 +517,110 @@ class TestAdvancedView:
             assert "beta_hdi_3" in ch
             assert "beta_hdi_97" in ch
             assert "p_value" not in ch
+
+
+# ---- control display names ----
+
+class TestControlDisplayNames:
+    def test_known_controls(self):
+        assert _control_display_name("sessions_organic") == "Organic Sessions"
+        assert _control_display_name("sessions_direct") == "Direct Sessions"
+        assert _control_display_name("sessions_email") == "Email Sessions"
+        assert _control_display_name("sessions_referral") == "Referral Sessions"
+
+    def test_ipc_controls(self):
+        assert _control_display_name("ipc_google_search") == "In-Platform Conv. (Google Search)"
+        assert _control_display_name("ipc_meta_feed") == "In-Platform Conv. (Meta Feed)"
+
+    def test_unknown_control(self):
+        result = _control_display_name("some_other_var")
+        assert result == "Some Other Var"
+
+
+# ---- control contributions in views ----
+
+class TestControlContributions:
+    def _make_results_with_controls(self):
+        controls = [
+            _make_control_posterior("sessions_organic", "Organic Sessions", contribution_pct=20.0),
+            _make_control_posterior("sessions_direct", "Direct Sessions", contribution_pct=10.0),
+        ]
+        return _make_results(
+            channels=[
+                _make_channel_posterior("spend_google_search", contribution_pct=30),
+                _make_channel_posterior("spend_meta_feed", contribution_pct=15),
+            ],
+            controls=controls,
+            baseline_pct=25.0,
+        )
+
+    def test_simple_view_includes_controls(self):
+        results = self._make_results_with_controls()
+        trust = _make_trust()
+        view = build_simple_view(results, trust)
+
+        assert len(view.controls) == 2
+        assert view.controls[0].contribution_pct >= view.controls[1].contribution_pct
+        assert view.controls[0].display_name == "Organic Sessions"
+        assert view.controls[1].display_name == "Direct Sessions"
+
+    def test_intermediate_view_includes_controls(self):
+        results = self._make_results_with_controls()
+        trust = _make_trust()
+        view = build_intermediate_view(results, trust)
+
+        assert len(view.controls) == 2
+        ctrl = view.controls[0]  # sorted by pct desc, so organic first
+        assert ctrl.contribution_pct == 20.0
+        assert ctrl.contribution_mean > 0
+        assert ctrl.gamma_mean > 0
+
+    def test_advanced_view_includes_controls(self):
+        results = self._make_results_with_controls()
+        trust = _make_trust()
+        view = build_advanced_view(results, trust)
+
+        assert len(view.controls) == 2
+        ctrl = view.controls[0]
+        assert ctrl.gamma_mean > 0
+        assert ctrl.gamma_sd > 0
+        assert ctrl.gamma_hdi_3 < ctrl.gamma_hdi_97
+        assert ctrl.contribution_pct > 0
+
+    def test_baseline_excludes_controls(self):
+        """Baseline should be 100 - channels - controls, not 100 - channels."""
+        results = self._make_results_with_controls()
+        trust = _make_trust()
+        view = build_simple_view(results, trust)
+
+        total_ch = sum(c.contribution_pct for c in view.channels)
+        total_ctrl = sum(c.contribution_pct for c in view.controls)
+        # baseline_pct = 25.0 in the helper, which = 100 - 30 - 15 - 20 - 10
+        assert view.baseline_pct == 25.0
+
+    def test_backward_compat_no_controls(self):
+        """Views should work fine with empty control_posteriors."""
+        results = _make_results()  # no controls
+        trust = _make_trust()
+
+        simple = build_simple_view(results, trust)
+        assert simple.controls == []
+
+        intermediate = build_intermediate_view(results, trust)
+        assert intermediate.controls == []
+
+        advanced = build_advanced_view(results, trust)
+        assert advanced.controls == []
+
+    def test_serialisable_with_controls(self):
+        results = self._make_results_with_controls()
+        trust = _make_trust()
+        view = build_simple_view(results, trust)
+        d = view.to_dict()
+        assert "controls" in d
+        assert len(d["controls"]) == 2
+
+        s = view.to_json()
+        parsed = json.loads(s)
+        assert "controls" in parsed
+        assert parsed["controls"][0]["display_name"] == "Organic Sessions"

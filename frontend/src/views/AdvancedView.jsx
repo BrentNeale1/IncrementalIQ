@@ -17,6 +17,7 @@ export default function AdvancedView({ runId }) {
   const diag = data.diagnostics || {};
   const validation = data.validation;
   const experiments = data.experiments || [];
+  const controls = data.controls || [];
 
   async function handleValidation() {
     try {
@@ -88,9 +89,46 @@ export default function AdvancedView({ runId }) {
         </table>
       </div>
 
+      {/* Control Variable Summary */}
+      {controls.length > 0 && (
+        <div className="card mt-16">
+          <div className="card-title">Control Variable Posteriors</div>
+          <table className="posterior-table">
+            <thead>
+              <tr>
+                <th>Control</th>
+                <th>Gamma Mean</th>
+                <th>Gamma SD</th>
+                <th>Gamma 94% HDI</th>
+                <th>Contribution %</th>
+                <th>Contribution HDI</th>
+              </tr>
+            </thead>
+            <tbody>
+              {controls.map((ctrl) => (
+                <tr key={ctrl.control}>
+                  <td style={{ fontFamily: 'var(--font-body)', fontWeight: 500 }}>
+                    {ctrl.display_name || ctrl.control}
+                  </td>
+                  <td>{ctrl.gamma_mean.toFixed(4)}</td>
+                  <td>{ctrl.gamma_sd.toFixed(4)}</td>
+                  <td>
+                    [{ctrl.gamma_hdi_3.toFixed(4)}, {ctrl.gamma_hdi_97.toFixed(4)}]
+                  </td>
+                  <td>{ctrl.contribution_pct.toFixed(1)}%</td>
+                  <td>
+                    [{ctrl.contribution_hdi_3.toFixed(1)}%, {ctrl.contribution_hdi_97.toFixed(1)}%]
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Contribution Chart */}
       <div className="card mt-16">
-        <ContributionBars channels={data.channels} showErrorBars />
+        <ContributionBars channels={data.channels} controls={controls} showErrorBars />
       </div>
 
       {/* Diagnostics */}

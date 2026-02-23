@@ -28,7 +28,7 @@ export default function StatStrip({ simpleView }) {
       <div className="stat-card">
         <div className="stat-label">Baseline Revenue</div>
         <div className="stat-value">{baselinePct.toFixed(1)}%</div>
-        <div className="stat-delta neutral">organic + direct + other</div>
+        <div className="stat-delta neutral">trend + seasonality</div>
       </div>
       <div className="stat-card">
         <div className="stat-label">Model Trust</div>

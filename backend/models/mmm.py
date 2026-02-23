@@ -86,6 +86,21 @@ class ChannelPosterior:
 
 
 @dataclass
+class ControlPosterior:
+    """Summary of posterior distribution for a single control variable."""
+    control: str           # e.g. "sessions_organic"
+    display_name: str      # e.g. "Organic Sessions"
+    gamma_mean: float      # coefficient posterior mean
+    gamma_sd: float
+    gamma_hdi_3: float
+    gamma_hdi_97: float
+    contribution_mean: float   # total contribution in dollars
+    contribution_pct: float    # % of total revenue
+    contribution_hdi_3: float
+    contribution_hdi_97: float
+
+
+@dataclass
 class ModelDiagnostics:
     """Model fit diagnostics."""
     r_squared_mean: float
@@ -102,11 +117,29 @@ class ModelDiagnostics:
 class ModelResults:
     """Complete model results for storage and API responses."""
     channel_posteriors: list[ChannelPosterior]
-    baseline_contribution_pct: float
+    control_posteriors: list[ControlPosterior]
+    baseline_contribution_pct: float  # now = 100 - channels - controls
     diagnostics: ModelDiagnostics
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), indent=2)
+
+
+def _control_display_name(control: str) -> str:
+    """Convert internal control names to readable labels."""
+    labels = {
+        "sessions_organic": "Organic Sessions",
+        "sessions_direct": "Direct Sessions",
+        "sessions_email": "Email Sessions",
+        "sessions_referral": "Referral Sessions",
+    }
+    if control in labels:
+        return labels[control]
+    # ipc_* controls: "In-Platform Conv. (Channel Name)"
+    if control.startswith("ipc_"):
+        ch_name = control[4:].replace("_", " ").title()
+        return f"In-Platform Conv. ({ch_name})"
+    return control.replace("_", " ").title()
 
 
 def _build_model_config(data: PreparedData) -> dict:
@@ -309,15 +342,64 @@ def extract_results(mmm: MMM, data: PreparedData) -> ModelResults:
             contribution_hdi_97=contrib_hdi_high,
         ))
 
-    # --- Baseline contribution ---
+    # --- Control posteriors ---
+    control_posteriors = []
+
+    control_names = [str(c.values) if hasattr(c, 'values') else str(c)
+                     for c in posterior.coords.get("control", [])]
+
+    if control_names and "control_contribution" in posterior:
+        ctrl_contrib = posterior["control_contribution"]
+        # Shape: (chain, draw, date, control) — sum over dates for total contribution
+        total_ctrl_samples = ctrl_contrib.sum(dim="date")
+
+        # gamma_control summary
+        gamma_summary = az.summary(
+            mmm.idata,
+            var_names=["gamma_control"],
+            hdi_prob=0.94,
+        )
+
+        for i, ctrl_name in enumerate(control_names):
+            # Gamma coefficient
+            gamma_key = f"gamma_control[{ctrl_name}]"
+            if gamma_key in gamma_summary.index:
+                gamma_row = gamma_summary.loc[gamma_key]
+            else:
+                gamma_row = gamma_summary.iloc[i] if i < len(gamma_summary) else None
+
+            # Control contribution
+            ctrl_np = total_ctrl_samples.sel(control=ctrl_name).values.flatten()
+            ctrl_mean = float(np.mean(ctrl_np)) * target_scale
+            ctrl_low, ctrl_high = _hdi_numpy(ctrl_np, 0.94)
+            ctrl_hdi_low = ctrl_low * target_scale
+            ctrl_hdi_high = ctrl_high * target_scale
+            ctrl_pct = (ctrl_mean / total_revenue * 100) if total_revenue > 0 else 0
+
+            control_posteriors.append(ControlPosterior(
+                control=ctrl_name,
+                display_name=_control_display_name(ctrl_name),
+                gamma_mean=_safe(gamma_row, "mean"),
+                gamma_sd=_safe(gamma_row, "sd"),
+                gamma_hdi_3=_safe(gamma_row, "hdi_3%"),
+                gamma_hdi_97=_safe(gamma_row, "hdi_97%"),
+                contribution_mean=ctrl_mean,
+                contribution_pct=round(ctrl_pct, 2),
+                contribution_hdi_3=ctrl_hdi_low,
+                contribution_hdi_97=ctrl_hdi_high,
+            ))
+
+    # --- Baseline contribution (now = 100 - channels - controls) ---
     total_channel_contrib_pct = sum(cp.contribution_pct for cp in channel_posteriors)
-    baseline_pct = max(0.0, 100.0 - total_channel_contrib_pct)
+    total_control_contrib_pct = sum(cp.contribution_pct for cp in control_posteriors)
+    baseline_pct = max(0.0, 100.0 - total_channel_contrib_pct - total_control_contrib_pct)
 
     # --- Diagnostics ---
     diagnostics = _compute_diagnostics(mmm, data, pp)
 
     return ModelResults(
         channel_posteriors=channel_posteriors,
+        control_posteriors=control_posteriors,
         baseline_contribution_pct=round(baseline_pct, 2),
         diagnostics=diagnostics,
     )

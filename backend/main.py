@@ -173,6 +173,9 @@ def start_model_run(req: ModelRunRequest, db: Session = Depends(get_db)):
         response["channel_contributions"] = [
             asdict(cp) for cp in results.channel_posteriors
         ]
+        response["control_contributions"] = [
+            asdict(cp) for cp in results.control_posteriors
+        ]
         response["baseline_contribution_pct"] = results.baseline_contribution_pct
         response["diagnostics"] = asdict(results.diagnostics)
 
@@ -227,7 +230,7 @@ def get_model_run(run_id: int, db: Session = Depends(get_db)):
 @app.get("/api/model/runs/{run_id}/simple")
 def get_simple_view(run_id: int, db: Session = Depends(get_db)):
     """Simple output view — plain-language channel contributions with confidence labels."""
-    from backend.models.mmm import ModelResults, ChannelPosterior, ModelDiagnostics
+    from backend.models.mmm import ModelResults, ChannelPosterior, ControlPosterior, ModelDiagnostics
     from backend.outputs.trust_score import compute_trust_score
     from backend.outputs.views import build_simple_view
 
@@ -240,9 +243,11 @@ def get_simple_view(run_id: int, db: Session = Depends(get_db)):
 
     # Reconstruct ModelResults from stored JSON
     channel_posteriors = [ChannelPosterior(**cp) for cp in results_data["channel_posteriors"]]
+    control_posteriors = [ControlPosterior(**cp) for cp in results_data.get("control_posteriors", [])]
     diagnostics = ModelDiagnostics(**results_data["diagnostics"])
     results = ModelResults(
         channel_posteriors=channel_posteriors,
+        control_posteriors=control_posteriors,
         baseline_contribution_pct=results_data["baseline_contribution_pct"],
         diagnostics=diagnostics,
     )
@@ -270,7 +275,7 @@ def get_simple_view(run_id: int, db: Session = Depends(get_db)):
 @app.get("/api/model/runs/{run_id}/intermediate")
 def get_intermediate_view(run_id: int, db: Session = Depends(get_db)):
     """Intermediate view — confidence intervals, adstock/saturation curves."""
-    from backend.models.mmm import ModelResults, ChannelPosterior, ModelDiagnostics
+    from backend.models.mmm import ModelResults, ChannelPosterior, ControlPosterior, ModelDiagnostics
     from backend.outputs.trust_score import compute_trust_score
     from backend.outputs.views import build_intermediate_view
 
@@ -280,9 +285,11 @@ def get_intermediate_view(run_id: int, db: Session = Depends(get_db)):
 
     results_data = json.loads(run.results_json)
     channel_posteriors = [ChannelPosterior(**cp) for cp in results_data["channel_posteriors"]]
+    control_posteriors = [ControlPosterior(**cp) for cp in results_data.get("control_posteriors", [])]
     diagnostics = ModelDiagnostics(**results_data["diagnostics"])
     results = ModelResults(
         channel_posteriors=channel_posteriors,
+        control_posteriors=control_posteriors,
         baseline_contribution_pct=results_data["baseline_contribution_pct"],
         diagnostics=diagnostics,
     )
@@ -313,7 +320,7 @@ def get_intermediate_view(run_id: int, db: Session = Depends(get_db)):
 @app.get("/api/model/runs/{run_id}/advanced")
 def get_advanced_view(run_id: int, db: Session = Depends(get_db)):
     """Advanced view — full posterior distributions, diagnostics, validation, experiments."""
-    from backend.models.mmm import ModelResults, ChannelPosterior, ModelDiagnostics
+    from backend.models.mmm import ModelResults, ChannelPosterior, ControlPosterior, ModelDiagnostics
     from backend.outputs.trust_score import compute_trust_score
     from backend.outputs.views import build_advanced_view
 
@@ -323,9 +330,11 @@ def get_advanced_view(run_id: int, db: Session = Depends(get_db)):
 
     results_data = json.loads(run.results_json)
     channel_posteriors = [ChannelPosterior(**cp) for cp in results_data["channel_posteriors"]]
+    control_posteriors = [ControlPosterior(**cp) for cp in results_data.get("control_posteriors", [])]
     diagnostics = ModelDiagnostics(**results_data["diagnostics"])
     results = ModelResults(
         channel_posteriors=channel_posteriors,
+        control_posteriors=control_posteriors,
         baseline_contribution_pct=results_data["baseline_contribution_pct"],
         diagnostics=diagnostics,
     )

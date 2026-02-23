@@ -13,7 +13,7 @@ import json
 from dataclasses import dataclass, field, asdict
 import numpy as np
 
-from backend.models.mmm import ModelResults, ChannelPosterior
+from backend.models.mmm import ModelResults, ChannelPosterior, ControlPosterior
 from backend.outputs.trust_score import TrustScore
 
 
@@ -54,6 +54,22 @@ def _channel_display_name(channel: str) -> str:
         "meta_stories": "Meta (Stories)",
     }
     return labels.get(name, name.replace("_", " ").title())
+
+
+def _control_display_name(control: str) -> str:
+    """Convert internal control names to readable labels."""
+    labels = {
+        "sessions_organic": "Organic Sessions",
+        "sessions_direct": "Direct Sessions",
+        "sessions_email": "Email Sessions",
+        "sessions_referral": "Referral Sessions",
+    }
+    if control in labels:
+        return labels[control]
+    if control.startswith("ipc_"):
+        ch_name = control[4:].replace("_", " ").title()
+        return f"In-Platform Conv. ({ch_name})"
+    return control.replace("_", " ").title()
 
 
 # --- Recommendation engine ---
@@ -128,8 +144,16 @@ class SimpleChannelResult:
 
 
 @dataclass
+class SimpleControlResult:
+    control: str
+    display_name: str
+    contribution_pct: float
+
+
+@dataclass
 class SimpleView:
     channels: list[SimpleChannelResult]
+    controls: list[SimpleControlResult]
     baseline_pct: float
     trust_tier: str
     trust_score: float
@@ -161,8 +185,19 @@ def build_simple_view(results: ModelResults, trust: TrustScore) -> SimpleView:
     # Sort by contribution descending
     channels.sort(key=lambda c: c.contribution_pct, reverse=True)
 
+    # Controls
+    controls = []
+    for ctrl in results.control_posteriors:
+        controls.append(SimpleControlResult(
+            control=ctrl.control,
+            display_name=ctrl.display_name,
+            contribution_pct=round(ctrl.contribution_pct, 1),
+        ))
+    controls.sort(key=lambda c: c.contribution_pct, reverse=True)
+
     return SimpleView(
         channels=channels,
+        controls=controls,
         baseline_pct=round(results.baseline_contribution_pct, 1),
         trust_tier=trust.overall_tier,
         trust_score=trust.overall_score,
@@ -209,8 +244,20 @@ class IntermediateChannelResult:
 
 
 @dataclass
+class IntermediateControlResult:
+    control: str
+    display_name: str
+    contribution_pct: float
+    contribution_mean: float
+    contribution_hdi_3: float
+    contribution_hdi_97: float
+    gamma_mean: float
+
+
+@dataclass
 class IntermediateView:
     channels: list[IntermediateChannelResult]
+    controls: list[IntermediateControlResult]
     baseline_pct: float
     adstock_curves: list[AdstockCurve]
     saturation_curves: list[SaturationCurve]
@@ -314,8 +361,23 @@ def build_intermediate_view(
 
     channels.sort(key=lambda c: c.contribution_pct, reverse=True)
 
+    # Controls
+    controls = []
+    for ctrl in results.control_posteriors:
+        controls.append(IntermediateControlResult(
+            control=ctrl.control,
+            display_name=ctrl.display_name,
+            contribution_pct=round(ctrl.contribution_pct, 1),
+            contribution_mean=round(ctrl.contribution_mean, 2),
+            contribution_hdi_3=round(ctrl.contribution_hdi_3, 2),
+            contribution_hdi_97=round(ctrl.contribution_hdi_97, 2),
+            gamma_mean=round(ctrl.gamma_mean, 4),
+        ))
+    controls.sort(key=lambda c: c.contribution_pct, reverse=True)
+
     return IntermediateView(
         channels=channels,
+        controls=controls,
         baseline_pct=round(results.baseline_contribution_pct, 1),
         adstock_curves=adstock_curves,
         saturation_curves=saturation_curves,
@@ -368,6 +430,21 @@ class AdvancedDiagnostics:
 
 
 @dataclass
+class AdvancedControlResult:
+    """Full posterior summary for a control variable."""
+    control: str
+    display_name: str
+    gamma_mean: float
+    gamma_sd: float
+    gamma_hdi_3: float
+    gamma_hdi_97: float
+    contribution_mean: float
+    contribution_pct: float
+    contribution_hdi_3: float
+    contribution_hdi_97: float
+
+
+@dataclass
 class AdvancedView:
     """Advanced output view — full posteriors, diagnostics, validation, experiments.
 
@@ -379,6 +456,7 @@ class AdvancedView:
     - CausalImpact experiment results alongside MMM posterior updates
     """
     channels: list[AdvancedChannelResult]
+    controls: list[AdvancedControlResult]
     baseline_contribution_pct: float
     diagnostics: AdvancedDiagnostics
     data_quality_flags: list[str]
@@ -437,6 +515,23 @@ def build_advanced_view(
 
     channels.sort(key=lambda c: c.contribution_pct, reverse=True)
 
+    # Controls
+    controls = []
+    for ctrl in results.control_posteriors:
+        controls.append(AdvancedControlResult(
+            control=ctrl.control,
+            display_name=ctrl.display_name,
+            gamma_mean=round(ctrl.gamma_mean, 4),
+            gamma_sd=round(ctrl.gamma_sd, 4),
+            gamma_hdi_3=round(ctrl.gamma_hdi_3, 4),
+            gamma_hdi_97=round(ctrl.gamma_hdi_97, 4),
+            contribution_mean=round(ctrl.contribution_mean, 2),
+            contribution_pct=round(ctrl.contribution_pct, 1),
+            contribution_hdi_3=round(ctrl.contribution_hdi_3, 2),
+            contribution_hdi_97=round(ctrl.contribution_hdi_97, 2),
+        ))
+    controls.sort(key=lambda c: c.contribution_pct, reverse=True)
+
     diag = results.diagnostics
     divergence_pct = (diag.divergences / total_draws * 100) if total_draws > 0 else 0.0
 
@@ -454,6 +549,7 @@ def build_advanced_view(
 
     return AdvancedView(
         channels=channels,
+        controls=controls,
         baseline_contribution_pct=round(results.baseline_contribution_pct, 1),
         diagnostics=diagnostics,
         data_quality_flags=trust.flags,

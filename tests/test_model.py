@@ -314,8 +314,22 @@ class TestModelFitting:
         assert results.diagnostics.mape_mean is not None
         assert results.diagnostics.divergences >= 0
 
-        # Contributions sum to ~100%
+        # Control posteriors should exist for the control variables
+        assert results.control_posteriors is not None
+        assert len(results.control_posteriors) > 0
+        control_names = {cp.control for cp in results.control_posteriors}
+        # At minimum sessions_organic/direct/email/referral should be present
+        assert "sessions_organic" in control_names
+        assert "sessions_direct" in control_names
+
+        # Each control posterior should have a display name and contribution
+        for cp in results.control_posteriors:
+            assert cp.display_name  # non-empty
+            assert cp.contribution_hdi_3 <= cp.contribution_hdi_97
+
+        # Contributions sum to ~100% (channels + controls + baseline)
         total_pct = sum(cp.contribution_pct for cp in results.channel_posteriors)
+        total_pct += sum(cp.contribution_pct for cp in results.control_posteriors)
         total_pct += results.baseline_contribution_pct
         assert 50 < total_pct < 150  # loose check for minimal sampling
 
@@ -331,8 +345,10 @@ class TestModelFitting:
         json_str = results.to_json()
         parsed = json.loads(json_str)
         assert "channel_posteriors" in parsed
+        assert "control_posteriors" in parsed
         assert "diagnostics" in parsed
         assert isinstance(parsed["channel_posteriors"], list)
+        assert isinstance(parsed["control_posteriors"], list)
 
 
 # ---- full pipeline (service) tests ----

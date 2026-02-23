@@ -18,6 +18,28 @@ export const CHANNEL_DISPLAY_NAMES = {
   meta_stories: 'Meta Stories',
 };
 
+export const CONTROL_COLORS = {
+  sessions_organic: '#2d6a4f',
+  sessions_direct: '#457b9d',
+  sessions_email: '#e76f51',
+  sessions_referral: '#8338ec',
+};
+
+export const CONTROL_DISPLAY_NAMES = {
+  sessions_organic: 'Organic Sessions',
+  sessions_direct: 'Direct Sessions',
+  sessions_email: 'Email Sessions',
+  sessions_referral: 'Referral Sessions',
+};
+
+export function getControlColor(control) {
+  return CONTROL_COLORS[control] || '#7a6f62';
+}
+
+export function getControlName(control) {
+  return CONTROL_DISPLAY_NAMES[control] || control.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 export const TRUST_TIERS = {
   reliable: {
     label: 'Model results are reliable',

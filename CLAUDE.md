@@ -216,14 +216,16 @@ Phase 1A uses CSV ingestion only. Do not build API connectors until the core mod
 | Phase | What | Status |
 |---|---|---|
 | 1A | CSV ingestion, schema validation, data quality report, SQLite storage | **Complete** |
+| 1A+ | Wide-format CSV auto-detection, Excel multi-sheet ingestion, SQLite WAL mode | **Complete** |
 | 2 | Core Bayesian MMM (pymc-marketing) | **Complete** |
+| 2+ | Channel filtering/merging (smart defaults, API endpoint, frontend UI), R²/MAPE diagnostics fix (mean-prediction Bayesian R²), seasonality bump (6 Fourier modes) | **Complete** |
 | 4 (basic) | Simple + intermediate output views | **Complete** |
 | 5 | Internal validation (holdout, posterior predictive checks, sensitivity) | **Complete** |
 | 3 | Adstock, lag detection, spend-scaling experiments, product experiment | **Complete** |
 | 4 (advanced) | Advanced output view | **Complete** |
 | 1B | API integrations (Google Ads, Meta, GA4, Shopify, WooCommerce) | **Complete** |
 
-**Current phase:** All phases complete (1A, 2, 3, 4, 5, 1B).
+**Current phase:** All phases complete (1A, 1A+, 2, 2+, 3, 4, 5, 1B).
 
 ---
 
@@ -234,25 +236,27 @@ Update this section as the project grows.
 ```
 incrementiq/
 ├── CLAUDE.md                  # This file
-├── requirements.txt           # Python dependencies
+├── requirements.txt           # Python dependencies (openpyxl for Excel support)
+├── data_template.xlsx         # Template Excel workbook for data ingestion
 ├── backend/
 │   ├── __init__.py
-│   ├── main.py                # FastAPI entrypoint — ingestion, model, views, experiment endpoints
+│   ├── main.py                # FastAPI entrypoint — ingestion, model, views, experiment, channel analysis endpoints
 │   ├── ingest/
 │   │   ├── __init__.py
-│   │   ├── schema.py          # Pandera schema, channel aliases, required columns
+│   │   ├── schema.py          # Pandera schema, channel aliases, valid channels (incl. audience_network, display, messenger, threads, unknown)
 │   │   ├── csv_reader.py      # CSV parsing, channel standardisation, validation
+│   │   ├── wide_reader.py     # Wide-format CSV auto-detection, wide→long conversion, Excel multi-sheet reader
 │   │   ├── quality.py         # Data quality report (history length, gaps, spikes, spend variance)
-│   │   └── service.py         # Orchestrator: read → validate → quality → store
+│   │   └── service.py         # Orchestrator: detect format → read → validate → quality → store (CSV + Excel)
 │   ├── db/
 │   │   ├── __init__.py
-│   │   ├── config.py          # SQLAlchemy engine, session, Base (SQLite → PostgreSQL via env var)
+│   │   ├── config.py          # SQLAlchemy engine, session, Base (SQLite WAL mode + busy_timeout → PostgreSQL via env var)
 │   │   └── models.py          # ORM: Upload, DailyRecord, QualityReport, ModelRun, ExperimentResult, ApiConnection, ApiSync
 │   ├── models/
 │   │   ├── __init__.py
-│   │   ├── data_prep.py       # DB → model-ready DataFrame (pivot channels, aggregate, controls)
-│   │   ├── mmm.py             # MMM config, build, fit, result extraction (pymc-marketing)
-│   │   ├── service.py         # Orchestrator: data prep → fit → extract → store
+│   │   ├── data_prep.py       # DB → model-ready DataFrame (pivot, aggregate, controls, channel filtering/merging, recommend_channel_config)
+│   │   ├── mmm.py             # MMM config, build, fit, result extraction, mean-prediction R²/MAPE diagnostics (pymc-marketing)
+│   │   ├── service.py         # Orchestrator: data prep → fit → extract → store (accepts channel_config)
 │   │   └── validation.py      # Holdout testing, posterior predictive checks, sensitivity analysis
 │   ├── experiments/
 │   │   ├── __init__.py
@@ -293,7 +297,7 @@ incrementiq/
 │       │   ├── ActionCard.jsx   # Recommendation card (scale/test/reduce/geo variants)
 │       │   ├── ChannelTable.jsx # Channel performance matrix with inline bars, CI ranges, confidence pips
 │       │   ├── QualityReport.jsx # Data quality display grid
-│       │   ├── FileDropZone.jsx # CSV drag-drop upload area
+│       │   ├── FileDropZone.jsx # CSV/Excel drag-drop upload area (.csv, .xlsx, .xls)
 │       │   ├── LoadingSpinner.jsx # Loading state
 │       │   └── charts/
 │       │       ├── RevenueDecomposition.jsx  # Stacked bar chart (Plotly)
@@ -303,9 +307,9 @@ incrementiq/
 │       │       └── SaturationCurves.jsx      # Saturation response curves (Plotly)
 │       └── views/
 │           ├── DashboardPage.jsx       # Stat strip + action cards + charts + channel table
-│           ├── UploadPage.jsx          # CSV upload + quality report display
+│           ├── UploadPage.jsx          # CSV/Excel upload + wide/long format docs + quality report
 │           ├── ConnectionsPage.jsx     # API connection CRUD + sync + merge
-│           ├── ModelRunPage.jsx        # Configure + run MMM + previous runs table
+│           ├── ModelRunPage.jsx        # Configure + run MMM + channel selection UI (smart defaults) + previous runs
 │           ├── ResultsPage.jsx         # Tabbed: Simple / Intermediate / Advanced
 │           ├── SimpleView.jsx          # Contribution bars + confidence labels + recommendations
 │           ├── IntermediateView.jsx    # Error bars + adstock/saturation curves + parameter tables
@@ -314,8 +318,8 @@ incrementiq/
 ├── pytest.ini                 # Test configuration (slow marker)
 └── tests/
     ├── __init__.py
-    ├── test_ingest.py         # 18 tests: channel standardisation, CSV reader, quality report, full pipeline
-    ├── test_model.py          # 18 tests: data prep, model construction, MCMC fitting, result extraction, service
+    ├── test_ingest.py         # 37 tests: channel standardisation, CSV reader, quality report, wide format, Excel multi-sheet, full pipeline
+    ├── test_model.py          # 25 tests: data prep, model construction, MCMC fitting, result extraction, service, channel filtering/merging
     ├── test_outputs.py        # 40 tests: trust score, confidence labels, simple/intermediate/advanced views, recommendations
     ├── test_validation.py     # 10 tests: holdout validation, posterior predictive check, sensitivity analysis
     ├── test_experiments.py    # 35 tests: lag detection, product experiment (PMax guard), spend-scaling data prep

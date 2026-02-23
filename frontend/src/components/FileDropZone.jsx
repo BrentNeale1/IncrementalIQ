@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 
-export default function FileDropZone({ onFile, accept = '.csv', label }) {
+export default function FileDropZone({ onFile, accept = '.csv,.xlsx,.xls', label }) {
   const [active, setActive] = useState(false);
   const [fileName, setFileName] = useState(null);
   const inputRef = useRef();
@@ -43,11 +43,10 @@ export default function FileDropZone({ onFile, accept = '.csv', label }) {
       ) : (
         <>
           <div className="dropzone-label">
-            {label || 'Drop a CSV file here, or click to browse'}
+            {label || 'Drop a CSV or Excel file here, or click to browse'}
           </div>
           <div className="dropzone-hint">
-            Requires: date, channel, campaign, spend, impressions, clicks,
-            in_platform_conversions, revenue, orders, sessions_*
+            Accepts .csv (wide or long format) and .xlsx (one sheet per data source)
           </div>
         </>
       )}

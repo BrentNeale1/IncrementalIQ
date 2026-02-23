@@ -1,8 +1,11 @@
+from io import BytesIO
 from dataclasses import asdict
+import pandas as pd
 from sqlalchemy.orm import Session
 from backend.db.models import Upload, DailyRecord, QualityReport
 from backend.ingest.csv_reader import read_csv, ValidationError
 from backend.ingest.quality import generate_quality_report, QualityResult
+from backend.ingest.wide_reader import detect_format, wide_to_long, read_excel_sheets
 
 
 class IngestResult:
@@ -22,15 +25,37 @@ class IngestResult:
 
 
 def ingest_csv(db: Session, filename: str, file_bytes: bytes) -> IngestResult:
-    """Full ingestion pipeline: parse CSV, validate, assess quality, store.
+    """Full ingestion pipeline: parse CSV/Excel, validate, assess quality, store.
 
+    Accepts .csv (long or wide format) and .xlsx (multi-sheet, merged on date).
     Returns IngestResult with upload ID, quality report, and any warnings.
-    Raises ValidationError if the CSV is malformed or fails schema checks.
+    Raises ValidationError if the file is malformed or fails schema checks.
     """
+    wide_warnings: list[str] = []
+    is_excel = filename.lower().endswith((".xlsx", ".xls"))
+
+    if is_excel:
+        raw_df, excel_warnings = read_excel_sheets(file_bytes)
+        wide_warnings.extend(excel_warnings)
+    else:
+        raw_df = pd.read_csv(BytesIO(file_bytes))
+        raw_df.columns = raw_df.columns.str.strip().str.lower().str.replace(" ", "_")
+
+    # Auto-detect wide vs long format and convert if needed
+    fmt = detect_format(raw_df)
+
+    if fmt == "wide":
+        long_df, convert_warnings = wide_to_long(raw_df)
+        wide_warnings.extend(convert_warnings)
+        file_bytes = long_df.to_csv(index=False).encode()
+    elif is_excel:
+        # Excel long format — serialize to CSV for read_csv validation
+        file_bytes = raw_df.to_csv(index=False).encode()
+
     df, channel_warnings = read_csv(file_bytes)
 
     quality = generate_quality_report(df)
-    all_warnings = channel_warnings + quality.warnings
+    all_warnings = wide_warnings + channel_warnings + quality.warnings
 
     if quality.history_status == "rejected":
         status = "rejected"

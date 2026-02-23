@@ -144,8 +144,14 @@ def prepare_model_data(
     y_series = daily["target_sum"].reindex(X["date"]).reset_index(drop=True)
     y_series.name = target
 
-    # Identify control columns (session controls + in-platform conversion columns)
-    control_columns = SESSION_CONTROLS + ipc_columns
+    # Identify control columns (session controls + optionally in-platform conversions)
+    exclude_ipc = channel_config.get("exclude_ipc", False) if channel_config else False
+    if exclude_ipc:
+        control_columns = SESSION_CONTROLS
+        # Drop IPC columns from X
+        X = X.drop(columns=ipc_columns)
+    else:
+        control_columns = SESSION_CONTROLS + ipc_columns
 
     return PreparedData(
         X=X,

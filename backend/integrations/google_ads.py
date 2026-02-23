@@ -1,6 +1,6 @@
 """Google Ads API connector.
 
-Fetches campaign-level spend, impressions, clicks, and conversions.
+Fetches campaign-level spend, clicks, and conversions.
 Maps Google Ads campaign types to standard channel names.
 """
 
@@ -73,7 +73,6 @@ class GoogleAdsConnector(BaseConnector):
                 campaign.name,
                 campaign.advertising_channel_type,
                 metrics.cost_micros,
-                metrics.impressions,
                 metrics.clicks,
                 metrics.conversions
             FROM campaign
@@ -100,7 +99,6 @@ class GoogleAdsConnector(BaseConnector):
                     "channel": channel,
                     "campaign": row.campaign.name,
                     "spend": row.metrics.cost_micros / 1_000_000,
-                    "impressions": row.metrics.impressions,
                     "clicks": row.metrics.clicks,
                     "in_platform_conversions": row.metrics.conversions,
                 })
@@ -108,7 +106,7 @@ class GoogleAdsConnector(BaseConnector):
         if not rows:
             warnings.append("No data returned from Google Ads for the given date range.")
             df = pd.DataFrame(columns=["date", "channel", "campaign", "spend",
-                                        "impressions", "clicks", "in_platform_conversions"])
+                                        "clicks", "in_platform_conversions"])
         else:
             df = pd.DataFrame(rows)
 

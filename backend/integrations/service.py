@@ -101,7 +101,7 @@ def merge_sources(
     """Merge multiple source uploads into a single unified dataset.
 
     Merge logic:
-    1. Ad data rows (google_*, meta_*) provide the skeleton with spend/clicks/impressions
+    1. Ad data rows (google_*, meta_*) provide the skeleton with spend/clicks
     2. GA4 session data joined by date (site-level) — takes max per date
     3. Revenue/orders from ecommerce sources joined by date — prefers ecommerce source over zeros
 
@@ -126,7 +126,6 @@ def merge_sources(
                 "channel": r.channel,
                 "campaign": r.campaign,
                 "spend": r.spend,
-                "impressions": r.impressions,
                 "clicks": r.clicks,
                 "in_platform_conversions": r.in_platform_conversions,
                 "revenue": r.revenue,
@@ -191,7 +190,7 @@ def merge_sources(
 
     # Ensure correct types before validation
     merged_df["date"] = pd.to_datetime(merged_df["date"])
-    for col in ["impressions", "clicks", "orders", "sessions_organic",
+    for col in ["clicks", "orders", "sessions_organic",
                  "sessions_direct", "sessions_email", "sessions_referral"]:
         merged_df[col] = merged_df[col].astype(int)
     for col in ["spend", "in_platform_conversions", "revenue"]:
@@ -238,7 +237,6 @@ def _store_records(db: Session, upload_id: int, df: pd.DataFrame) -> None:
             channel=str(row["channel"]),
             campaign=str(row["campaign"]),
             spend=float(row["spend"]),
-            impressions=int(row["impressions"]),
             clicks=int(row["clicks"]),
             in_platform_conversions=float(row["in_platform_conversions"]),
             revenue=float(row["revenue"]),

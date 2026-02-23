@@ -33,7 +33,6 @@ class DailyRecord(Base):
     channel: Mapped[str] = mapped_column(String(100))
     campaign: Mapped[str] = mapped_column(String(255))
     spend: Mapped[float] = mapped_column(Float)
-    impressions: Mapped[int] = mapped_column(Integer)
     clicks: Mapped[int] = mapped_column(Integer)
     in_platform_conversions: Mapped[float] = mapped_column(Float)
     revenue: Mapped[float] = mapped_column(Float)

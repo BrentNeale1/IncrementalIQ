@@ -1,6 +1,6 @@
 """Meta Marketing API connector.
 
-Fetches ad-set level spend, impressions, clicks, and conversions from
+Fetches ad-set level spend, clicks, and conversions from
 Facebook/Instagram campaigns. Maps publisher platforms to standard channels.
 """
 
@@ -78,7 +78,6 @@ class MetaAdsConnector(BaseConnector):
             "campaign_name",
             "publisher_platform",
             "spend",
-            "impressions",
             "clicks",
             "actions",
         ]
@@ -106,7 +105,6 @@ class MetaAdsConnector(BaseConnector):
                 "channel": channel,
                 "campaign": insight.get("campaign_name", ""),
                 "spend": float(insight.get("spend", 0)),
-                "impressions": int(insight.get("impressions", 0)),
                 "clicks": int(insight.get("clicks", 0)),
                 "in_platform_conversions": conversions,
             })
@@ -114,7 +112,7 @@ class MetaAdsConnector(BaseConnector):
         if not rows:
             warnings.append("No data returned from Meta for the given date range.")
             df = pd.DataFrame(columns=["date", "channel", "campaign", "spend",
-                                        "impressions", "clicks", "in_platform_conversions"])
+                                        "clicks", "in_platform_conversions"])
         else:
             df = pd.DataFrame(rows)
 

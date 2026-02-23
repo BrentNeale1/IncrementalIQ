@@ -71,8 +71,6 @@ for day_offset in range(DAYS):
         spend = max(5.0, spend)
         cpc = random.uniform(*cpc_range)
         clicks = max(1, int(spend / cpc))
-        impressions = max(clicks, int(clicks / max(0.005, ctr * random.gauss(1.0, 0.15))))
-
         # In-platform conversions (noisy, platform-inflated)
         true_convs = clicks * conv_rate * season * 0.3 * random.gauss(1.0, 0.20)
         in_platform_conversions = max(0, true_convs * random.uniform(1.1, 1.5))  # platform inflation
@@ -95,7 +93,6 @@ for day_offset in range(DAYS):
             "channel": channel,
             "campaign": f"{channel}_always_on",
             "spend": round(spend, 2),
-            "impressions": impressions,
             "clicks": clicks,
             "in_platform_conversions": round(in_platform_conversions, 2),
             "revenue": round(revenue, 2),
@@ -109,7 +106,7 @@ for day_offset in range(DAYS):
 out_path = "sample_data.csv"
 with open(out_path, "w", newline="") as f:
     writer = csv.DictWriter(f, fieldnames=[
-        "date", "channel", "campaign", "spend", "impressions", "clicks",
+        "date", "channel", "campaign", "spend", "clicks",
         "in_platform_conversions", "revenue", "orders",
         "sessions_organic", "sessions_direct", "sessions_email", "sessions_referral",
     ])

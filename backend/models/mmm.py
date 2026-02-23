@@ -292,35 +292,92 @@ def extract_results(mmm: MMM, data: PreparedData) -> ModelResults:
             return float(row[col])
         return default
 
+    # --- Collect raw contribution means (in dollars) for all components ---
+    # We'll normalize percentages at the end so channels + controls + baseline = 100%
+    channel_contrib_means = {}  # ch_name → mean dollars
+    channel_contrib_hdis = {}   # ch_name → (low, high) dollars
+
     for i, ch_name in enumerate(channel_names):
-        # Beta (channel coefficient)
+        if total_contrib_samples is not None:
+            ch_contrib_np = total_contrib_samples.sel(channel=ch_name).values.flatten()
+            contrib_mean = float(np.mean(ch_contrib_np)) * target_scale
+            low, high = _hdi_numpy(ch_contrib_np, 0.94)
+            channel_contrib_means[ch_name] = contrib_mean
+            channel_contrib_hdis[ch_name] = (low * target_scale, high * target_scale)
+        else:
+            channel_contrib_means[ch_name] = 0.0
+            channel_contrib_hdis[ch_name] = (0.0, 0.0)
+
+    control_contrib_means = {}  # ctrl_name → mean dollars
+    control_contrib_hdis = {}   # ctrl_name → (low, high) dollars
+
+    control_names = [str(c.values) if hasattr(c, 'values') else str(c)
+                     for c in posterior.coords.get("control", [])]
+
+    gamma_summary = None
+    if control_names and "control_contribution" in posterior:
+        ctrl_contrib = posterior["control_contribution"]
+        total_ctrl_samples = ctrl_contrib.sum(dim="date")
+
+        gamma_summary = az.summary(
+            mmm.idata,
+            var_names=["gamma_control"],
+            hdi_prob=0.94,
+        )
+
+        for i, ctrl_name in enumerate(control_names):
+            ctrl_np = total_ctrl_samples.sel(control=ctrl_name).values.flatten()
+            ctrl_mean = float(np.mean(ctrl_np)) * target_scale
+            ctrl_low, ctrl_high = _hdi_numpy(ctrl_np, 0.94)
+            control_contrib_means[ctrl_name] = ctrl_mean
+            control_contrib_hdis[ctrl_name] = (ctrl_low * target_scale, ctrl_high * target_scale)
+
+    # --- Extract baseline (intercept + seasonality) from posterior ---
+    baseline_mean = 0.0
+    try:
+        intercept = posterior["intercept_contribution"].values  # (chain, draw)
+        n_obs = data.daily_rows
+        intercept_total = intercept.flatten() * n_obs
+
+        fourier = posterior["yearly_seasonality_contribution"].values  # (chain, draw, date)
+        fourier_total = fourier.reshape(-1, fourier.shape[-1]).sum(axis=1)
+
+        baseline_samples = (intercept_total + fourier_total) * target_scale
+        baseline_mean = float(np.mean(baseline_samples))
+    except (KeyError, Exception):
+        pass  # baseline_mean stays 0
+
+    # --- Normalize percentages so all components sum to 100% ---
+    # Use the model's own predicted total (channels + controls + baseline) as denominator.
+    # This avoids the issue where posterior means computed against observed revenue
+    # can sum to more or less than 100%.
+    model_total = (
+        sum(channel_contrib_means.values())
+        + sum(control_contrib_means.values())
+        + max(0.0, baseline_mean)
+    )
+
+    def _pct(value):
+        return round((value / model_total * 100) if model_total > 0 else 0, 2)
+
+    baseline_pct = _pct(max(0.0, baseline_mean))
+
+    # --- Build channel posteriors with normalized percentages ---
+    for i, ch_name in enumerate(channel_names):
         beta_key = f"saturation_beta[{ch_name}]"
         if beta_key in summary.index:
             beta_row = summary.loc[beta_key]
         else:
             beta_row = summary.iloc[i] if i < len(summary) else None
 
-        # Adstock alpha
         alpha_key = f"adstock_alpha[{ch_name}]"
         alpha_row = summary.loc[alpha_key] if alpha_key in summary.index else None
 
-        # Saturation lambda
         lam_key = f"saturation_lam[{ch_name}]"
         lam_row = summary.loc[lam_key] if lam_key in summary.index else None
 
-        # Channel contribution — convert to numpy to avoid xarray HDI issues
-        # Rescale from normalized to original dollars and compute % of total revenue.
-        if total_contrib_samples is not None:
-            ch_contrib_np = total_contrib_samples.sel(channel=ch_name).values.flatten()
-            contrib_mean = float(np.mean(ch_contrib_np)) * target_scale
-            low, high = _hdi_numpy(ch_contrib_np, 0.94)
-            contrib_hdi_low = low * target_scale
-            contrib_hdi_high = high * target_scale
-            contrib_pct = (contrib_mean / total_revenue * 100) if total_revenue > 0 else 0
-        else:
-            contrib_mean = 0.0
-            contrib_hdi_low, contrib_hdi_high = 0.0, 0.0
-            contrib_pct = 0.0
+        contrib_mean = channel_contrib_means[ch_name]
+        contrib_hdi_low, contrib_hdi_high = channel_contrib_hdis[ch_name]
 
         channel_posteriors.append(ChannelPosterior(
             channel=ch_name,
@@ -337,62 +394,37 @@ def extract_results(mmm: MMM, data: PreparedData) -> ModelResults:
             saturation_lam_hdi_3=_safe(lam_row, "hdi_3%"),
             saturation_lam_hdi_97=_safe(lam_row, "hdi_97%"),
             contribution_mean=contrib_mean,
-            contribution_pct=round(contrib_pct, 2),
+            contribution_pct=_pct(contrib_mean),
             contribution_hdi_3=contrib_hdi_low,
             contribution_hdi_97=contrib_hdi_high,
         ))
 
-    # --- Control posteriors ---
+    # --- Build control posteriors with normalized percentages ---
     control_posteriors = []
+    for i, ctrl_name in enumerate(control_names):
+        gamma_key = f"gamma_control[{ctrl_name}]"
+        if gamma_summary is not None and gamma_key in gamma_summary.index:
+            gamma_row = gamma_summary.loc[gamma_key]
+        elif gamma_summary is not None and i < len(gamma_summary):
+            gamma_row = gamma_summary.iloc[i]
+        else:
+            gamma_row = None
 
-    control_names = [str(c.values) if hasattr(c, 'values') else str(c)
-                     for c in posterior.coords.get("control", [])]
+        ctrl_mean = control_contrib_means.get(ctrl_name, 0.0)
+        ctrl_hdi = control_contrib_hdis.get(ctrl_name, (0.0, 0.0))
 
-    if control_names and "control_contribution" in posterior:
-        ctrl_contrib = posterior["control_contribution"]
-        # Shape: (chain, draw, date, control) — sum over dates for total contribution
-        total_ctrl_samples = ctrl_contrib.sum(dim="date")
-
-        # gamma_control summary
-        gamma_summary = az.summary(
-            mmm.idata,
-            var_names=["gamma_control"],
-            hdi_prob=0.94,
-        )
-
-        for i, ctrl_name in enumerate(control_names):
-            # Gamma coefficient
-            gamma_key = f"gamma_control[{ctrl_name}]"
-            if gamma_key in gamma_summary.index:
-                gamma_row = gamma_summary.loc[gamma_key]
-            else:
-                gamma_row = gamma_summary.iloc[i] if i < len(gamma_summary) else None
-
-            # Control contribution
-            ctrl_np = total_ctrl_samples.sel(control=ctrl_name).values.flatten()
-            ctrl_mean = float(np.mean(ctrl_np)) * target_scale
-            ctrl_low, ctrl_high = _hdi_numpy(ctrl_np, 0.94)
-            ctrl_hdi_low = ctrl_low * target_scale
-            ctrl_hdi_high = ctrl_high * target_scale
-            ctrl_pct = (ctrl_mean / total_revenue * 100) if total_revenue > 0 else 0
-
-            control_posteriors.append(ControlPosterior(
-                control=ctrl_name,
-                display_name=_control_display_name(ctrl_name),
-                gamma_mean=_safe(gamma_row, "mean"),
-                gamma_sd=_safe(gamma_row, "sd"),
-                gamma_hdi_3=_safe(gamma_row, "hdi_3%"),
-                gamma_hdi_97=_safe(gamma_row, "hdi_97%"),
-                contribution_mean=ctrl_mean,
-                contribution_pct=round(ctrl_pct, 2),
-                contribution_hdi_3=ctrl_hdi_low,
-                contribution_hdi_97=ctrl_hdi_high,
-            ))
-
-    # --- Baseline contribution (now = 100 - channels - controls) ---
-    total_channel_contrib_pct = sum(cp.contribution_pct for cp in channel_posteriors)
-    total_control_contrib_pct = sum(cp.contribution_pct for cp in control_posteriors)
-    baseline_pct = max(0.0, 100.0 - total_channel_contrib_pct - total_control_contrib_pct)
+        control_posteriors.append(ControlPosterior(
+            control=ctrl_name,
+            display_name=_control_display_name(ctrl_name),
+            gamma_mean=_safe(gamma_row, "mean"),
+            gamma_sd=_safe(gamma_row, "sd"),
+            gamma_hdi_3=_safe(gamma_row, "hdi_3%"),
+            gamma_hdi_97=_safe(gamma_row, "hdi_97%"),
+            contribution_mean=ctrl_mean,
+            contribution_pct=_pct(ctrl_mean),
+            contribution_hdi_3=ctrl_hdi[0],
+            contribution_hdi_97=ctrl_hdi[1],
+        ))
 
     # --- Diagnostics ---
     diagnostics = _compute_diagnostics(mmm, data, pp)

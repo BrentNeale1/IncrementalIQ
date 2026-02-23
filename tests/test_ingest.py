@@ -35,7 +35,6 @@ def _make_row(date_str: str, channel: str = "google_search", **overrides) -> dic
         "channel": channel,
         "campaign": "test_campaign",
         "spend": 100.0,
-        "impressions": 1000,
         "clicks": 50,
         "in_platform_conversions": 5.0,
         "revenue": 500.0,
@@ -204,35 +203,27 @@ def _make_wide_row(date_str: str, **overrides) -> dict:
     base = {
         "date": date_str,
         "ga_search_cost": 100.0,
-        "ga_search_impr": 5000,
         "ga_search_clicks": 200,
         "ga_search_conv": 10.0,
         "ga_shopping_cost": 80.0,
-        "ga_shopping_impr": 8000,
         "ga_shopping_clicks": 150,
         "ga_shopping_conv": 6.0,
         "ga_pmax_cost": 110.0,
-        "ga_pmax_impr": 15000,
         "ga_pmax_clicks": 190,
         "ga_pmax_conv": 14.0,
         "ga_youtube_cost": 50.0,
-        "ga_youtube_impr": 20000,
         "ga_youtube_clicks": 80,
         "ga_youtube_conv": 2.0,
         "ga_dgen_cost": 40.0,
-        "ga_dgen_impr": 8000,
         "ga_dgen_clicks": 60,
         "ga_dgen_conv": 3.0,
         "meta_fb_cost": 120.0,
-        "meta_fb_impr": 18000,
         "meta_fb_clicks": 220,
         "meta_fb_conv": 9.0,
         "meta_insta_cost": 75.0,
-        "meta_insta_impr": 14000,
         "meta_insta_clicks": 160,
         "meta_insta_conv": 7.0,
         "meta_stories_cost": 45.0,
-        "meta_stories_impr": 9000,
         "meta_stories_clicks": 95,
         "meta_stories_conv": 4.0,
         "shopify_revenue": 2500.0,
@@ -306,13 +297,12 @@ class TestWideFormat:
         assert channels == expected
 
     def test_wide_metric_mapping(self):
-        rows = [_make_wide_row("2024-01-01", ga_search_cost=123.45, ga_search_impr=9999,
+        rows = [_make_wide_row("2024-01-01", ga_search_cost=123.45,
                                ga_search_clicks=456, ga_search_conv=7.8)]
         df = pd.DataFrame(rows)
         long_df, _ = wide_to_long(df)
         search_row = long_df[long_df["channel"] == "google_search"].iloc[0]
         assert search_row["spend"] == 123.45
-        assert search_row["impressions"] == 9999
         assert search_row["clicks"] == 456
         assert search_row["in_platform_conversions"] == 7.8
 
@@ -370,7 +360,6 @@ def _make_channel_row(date_str: str, channel: str, **overrides) -> dict:
         "channel": channel,
         "campaign": f"{channel}_campaign",
         "spend": 100.0,
-        "impressions": 5000,
         "clicks": 200,
         "in_platform_conversions": 10.0,
     }

@@ -80,7 +80,6 @@ def ingest_csv(db: Session, filename: str, file_bytes: bytes) -> IngestResult:
             channel=row["channel"],
             campaign=row["campaign"],
             spend=row["spend"],
-            impressions=int(row["impressions"]),
             clicks=int(row["clicks"]),
             in_platform_conversions=row["in_platform_conversions"],
             revenue=row["revenue"],

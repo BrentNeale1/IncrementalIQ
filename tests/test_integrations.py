@@ -70,7 +70,6 @@ class TestBaseInfrastructure:
         })
         result = ensure_schema(df)
         assert list(result.columns) == REQUIRED_COLUMNS
-        assert result["impressions"].iloc[0] == 0
         assert result["clicks"].iloc[0] == 0
         assert result["revenue"].iloc[0] == 0.0
         assert result["sessions_organic"].iloc[0] == 0
@@ -81,7 +80,6 @@ class TestBaseInfrastructure:
             "channel": ["google_search"],
             "campaign": ["test"],
             "spend": [100.0],
-            "impressions": [5000],
             "clicks": [200],
             "in_platform_conversions": [10.0],
             "revenue": [500.0],
@@ -93,7 +91,7 @@ class TestBaseInfrastructure:
         })
         result = ensure_schema(df)
         assert result["spend"].iloc[0] == 100.0
-        assert result["impressions"].iloc[0] == 5000
+        assert result["clicks"].iloc[0] == 200
 
     def test_fetch_result_rows_fetched(self):
         df = pd.DataFrame({"a": [1, 2, 3]})
@@ -159,7 +157,6 @@ class TestGoogleAdsConnector:
         mock_row.campaign.name = "Brand Search"
         mock_row.campaign.advertising_channel_type.name = "SEARCH"
         mock_row.metrics.cost_micros = 50_000_000  # $50
-        mock_row.metrics.impressions = 10000
         mock_row.metrics.clicks = 500
         mock_row.metrics.conversions = 25.0
 
@@ -183,7 +180,6 @@ class TestGoogleAdsConnector:
         assert len(result.data) == 1
         assert result.data["channel"].iloc[0] == "google_search"
         assert result.data["spend"].iloc[0] == 50.0
-        assert result.data["impressions"].iloc[0] == 10000
         assert result.data["revenue"].iloc[0] == 0.0  # zero-filled
         assert result.data["sessions_organic"].iloc[0] == 0  # zero-filled
 
@@ -203,7 +199,6 @@ class TestGoogleAdsConnector:
         mock_row.campaign.name = "Display"
         mock_row.campaign.advertising_channel_type.name = "DISPLAY"
         mock_row.metrics.cost_micros = 10_000_000
-        mock_row.metrics.impressions = 50000
         mock_row.metrics.clicks = 100
         mock_row.metrics.conversions = 5.0
 
@@ -253,7 +248,6 @@ class TestMetaAdsConnector:
             "campaign_name": "Summer Sale",
             "publisher_platform": "facebook",
             "spend": "75.50",
-            "impressions": "20000",
             "clicks": "800",
             "actions": [
                 {"action_type": "purchase", "value": "12"},
@@ -286,7 +280,6 @@ class TestMetaAdsConnector:
             "campaign_name": "IG Promo",
             "publisher_platform": "instagram",
             "spend": "30.0",
-            "impressions": "8000",
             "clicks": "200",
             "actions": [],
         }
@@ -442,7 +435,6 @@ class TestShopifyConnector:
         assert day1["orders"].iloc[0] == 2
         # Zero-filled ad columns
         assert result.data["spend"].iloc[0] == 0
-        assert result.data["impressions"].iloc[0] == 0
 
     @patch("backend.integrations.shopify.ShopifyConnector.authenticate")
     def test_fetch_empty_warns(self, mock_auth):
@@ -569,7 +561,6 @@ class TestSyncConnection:
             "channel": ["google_search"],
             "campaign": ["Brand"],
             "spend": [100.0],
-            "impressions": [5000],
             "clicks": [200],
             "in_platform_conversions": [10.0],
             "revenue": [0.0],
@@ -640,7 +631,7 @@ class TestMergeSources:
             {
                 "date": datetime.date(2024, 6, 1),
                 "channel": "google_search", "campaign": "Brand",
-                "spend": 100.0, "impressions": 5000, "clicks": 200,
+                "spend": 100.0, "clicks": 200,
                 "in_platform_conversions": 10.0, "revenue": 0.0, "orders": 0,
                 "sessions_organic": 0, "sessions_direct": 0,
                 "sessions_email": 0, "sessions_referral": 0,
@@ -651,7 +642,7 @@ class TestMergeSources:
             {
                 "date": datetime.date(2024, 6, 1),
                 "channel": "ecommerce", "campaign": "shopify_orders",
-                "spend": 0.0, "impressions": 0, "clicks": 0,
+                "spend": 0.0, "clicks": 0,
                 "in_platform_conversions": 0.0, "revenue": 1500.0, "orders": 20,
                 "sessions_organic": 0, "sessions_direct": 0,
                 "sessions_email": 0, "sessions_referral": 0,
@@ -672,7 +663,7 @@ class TestMergeSources:
             {
                 "date": datetime.date(2024, 6, 1),
                 "channel": "google_search", "campaign": "Brand",
-                "spend": 100.0, "impressions": 5000, "clicks": 200,
+                "spend": 100.0, "clicks": 200,
                 "in_platform_conversions": 10.0, "revenue": 0.0, "orders": 0,
                 "sessions_organic": 0, "sessions_direct": 0,
                 "sessions_email": 0, "sessions_referral": 0,
@@ -683,7 +674,7 @@ class TestMergeSources:
             {
                 "date": datetime.date(2024, 6, 1),
                 "channel": "organic_traffic", "campaign": "ga4_sessions",
-                "spend": 0.0, "impressions": 0, "clicks": 0,
+                "spend": 0.0, "clicks": 0,
                 "in_platform_conversions": 0.0, "revenue": 0.0, "orders": 0,
                 "sessions_organic": 500, "sessions_direct": 300,
                 "sessions_email": 50, "sessions_referral": 25,
@@ -703,7 +694,7 @@ class TestMergeSources:
             {
                 "date": datetime.date(2024, 6, 1),
                 "channel": "google_search", "campaign": "Brand",
-                "spend": 100.0, "impressions": 5000, "clicks": 200,
+                "spend": 100.0, "clicks": 200,
                 "in_platform_conversions": 10.0, "revenue": 0.0, "orders": 0,
                 "sessions_organic": 0, "sessions_direct": 0,
                 "sessions_email": 0, "sessions_referral": 0,
@@ -714,7 +705,7 @@ class TestMergeSources:
             {
                 "date": datetime.date(2024, 6, 1),
                 "channel": "organic_traffic", "campaign": "ga4_sessions",
-                "spend": 0.0, "impressions": 0, "clicks": 0,
+                "spend": 0.0, "clicks": 0,
                 "in_platform_conversions": 0.0, "revenue": 0.0, "orders": 0,
                 "sessions_organic": 500, "sessions_direct": 300,
                 "sessions_email": 50, "sessions_referral": 25,
@@ -725,7 +716,7 @@ class TestMergeSources:
             {
                 "date": datetime.date(2024, 6, 1),
                 "channel": "ecommerce", "campaign": "shopify_orders",
-                "spend": 0.0, "impressions": 0, "clicks": 0,
+                "spend": 0.0, "clicks": 0,
                 "in_platform_conversions": 0.0, "revenue": 2000.0, "orders": 30,
                 "sessions_organic": 0, "sessions_direct": 0,
                 "sessions_email": 0, "sessions_referral": 0,
@@ -746,7 +737,7 @@ class TestMergeSources:
             {
                 "date": datetime.date(2024, 6, 1),
                 "channel": "google_search", "campaign": "Brand",
-                "spend": 100.0, "impressions": 5000, "clicks": 200,
+                "spend": 100.0, "clicks": 200,
                 "in_platform_conversions": 10.0, "revenue": 500.0, "orders": 5,
                 "sessions_organic": 100, "sessions_direct": 50,
                 "sessions_email": 10, "sessions_referral": 5,
@@ -756,7 +747,7 @@ class TestMergeSources:
             {
                 "date": datetime.date(2024, 6, 2),
                 "channel": "ecommerce", "campaign": "shopify",
-                "spend": 0.0, "impressions": 0, "clicks": 0,
+                "spend": 0.0, "clicks": 0,
                 "in_platform_conversions": 0.0, "revenue": 600.0, "orders": 8,
                 "sessions_organic": 0, "sessions_direct": 0,
                 "sessions_email": 0, "sessions_referral": 0,
@@ -839,7 +830,7 @@ class TestDBModels:
             "date": datetime.date(2024, 6, 1),
             "channel": "google_search",
             "campaign": "Brand",
-            "spend": 100.0, "impressions": 5000, "clicks": 200,
+            "spend": 100.0, "clicks": 200,
             "in_platform_conversions": 10.0, "revenue": 500.0, "orders": 5,
             "sessions_organic": 100, "sessions_direct": 50,
             "sessions_email": 10, "sessions_referral": 5,

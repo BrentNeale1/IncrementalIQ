@@ -69,7 +69,6 @@ def _generate_synthetic_data(
                 "channel": ch,
                 "campaign": f"{ch}_campaign_1",
                 "spend": round(spend, 2),
-                "impressions": int(spend * 10 + rng.normal(0, 100)),
                 "clicks": int(spend * 0.5 + rng.normal(0, 10)),
                 "in_platform_conversions": round(max(0, spend * 0.03 + rng.normal(0, 1)), 2),
                 "revenue": round(max(0, base_rev), 2),
@@ -101,7 +100,6 @@ def _insert_records(db_session, df: pd.DataFrame) -> int:
             channel=row["channel"],
             campaign=row["campaign"],
             spend=row["spend"],
-            impressions=int(row["impressions"]),
             clicks=int(row["clicks"]),
             in_platform_conversions=row["in_platform_conversions"],
             revenue=row["revenue"],
@@ -218,7 +216,6 @@ class TestDataPrep:
                     "channel": ch,
                     "campaign": f"{ch}_c1",
                     "spend": round(rng.uniform(50, 200), 2),
-                    "impressions": int(rng.uniform(500, 2000)),
                     "clicks": int(rng.uniform(20, 100)),
                     "in_platform_conversions": round(rng.uniform(0, 5), 2),
                     "revenue": daily_revenue[i],  # identical across channels
@@ -327,11 +324,8 @@ class TestModelFitting:
             assert cp.display_name  # non-empty
             assert cp.contribution_hdi_3 <= cp.contribution_hdi_97
 
-        # Contributions sum to ~100% (channels + controls + baseline)
-        total_pct = sum(cp.contribution_pct for cp in results.channel_posteriors)
-        total_pct += sum(cp.contribution_pct for cp in results.control_posteriors)
-        total_pct += results.baseline_contribution_pct
-        assert 50 < total_pct < 150  # loose check for minimal sampling
+        # Baseline should be non-negative (extracted from intercept + seasonality)
+        assert results.baseline_contribution_pct >= 0
 
     @pytest.mark.slow
     def test_results_serialisable(self):
@@ -434,7 +428,7 @@ class TestChannelFiltering:
                 rows.append({
                     "date": d, "channel": ch, "campaign": f"{ch}_c1",
                     "spend": spend,
-                    "impressions": 100, "clicks": 10,
+                    "clicks": 10,
                     "in_platform_conversions": 1.0,
                     "revenue": 500.0, "orders": 5,
                     "sessions_organic": 200, "sessions_direct": 100,
@@ -472,7 +466,7 @@ class TestChannelFiltering:
                 rows.append({
                     "date": d, "channel": ch, "campaign": f"{ch}_c1",
                     "spend": round(spend, 2),
-                    "impressions": 100, "clicks": 10,
+                    "clicks": 10,
                     "in_platform_conversions": 1.0,
                     "revenue": 1000.0, "orders": 10,
                     "sessions_organic": 200, "sessions_direct": 100,

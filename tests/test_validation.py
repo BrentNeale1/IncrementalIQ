@@ -58,7 +58,6 @@ def _generate_synthetic_data(
                 "channel": ch,
                 "campaign": f"{ch}_campaign_1",
                 "spend": round(spend, 2),
-                "impressions": max(0, int(spend * 10 + rng.normal(0, 100))),
                 "clicks": max(0, int(spend * 0.5 + rng.normal(0, 10))),
                 "in_platform_conversions": round(max(0, spend * 0.03 + rng.normal(0, 1)), 2),
                 "revenue": round(max(0, base_rev), 2),

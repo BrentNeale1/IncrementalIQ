@@ -32,7 +32,6 @@ class FetchResult:
 
 ZERO_FILL_COLUMNS = {
     "spend": 0.0,
-    "impressions": 0,
     "clicks": 0,
     "in_platform_conversions": 0.0,
     "revenue": 0.0,

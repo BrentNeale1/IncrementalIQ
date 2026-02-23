@@ -23,7 +23,6 @@ PREFIX_TO_CHANNEL = {
 
 # Metric suffix → long-format column name
 SUFFIX_TO_METRIC = {
-    "_impr": "impressions",
     "_clicks": "clicks",
     "_cost": "spend",
     "_conv": "in_platform_conversions",

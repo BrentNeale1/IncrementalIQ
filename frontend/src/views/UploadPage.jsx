@@ -33,14 +33,14 @@ export default function UploadPage() {
           Upload a CSV with daily marketing data. Two formats are accepted:
         </div>
         <div className="card-subtitle" style={{ marginTop: '0.5rem' }}>
-          <strong>Wide format</strong> (one row per day): date, ga_search_cost, ga_search_impr,
+          <strong>Wide format</strong> (one row per day): date, ga_search_cost,
           ga_search_clicks, ga_search_conv, ga_shopping_*, ga_pmax_*, ga_youtube_*, ga_dgen_*,
           meta_fb_*, meta_insta_*, meta_stories_*, shopify_revenue, shopify_orders,
           ga4_sessions_organic, ga4_sessions_direct, ga4_sessions_email, ga4_sessions_referral.
         </div>
         <div className="card-subtitle" style={{ marginTop: '0.5rem' }}>
           <strong>Long format</strong> (one row per channel per day): date, channel,
-          campaign, spend, impressions, clicks, in_platform_conversions, revenue,
+          campaign, spend, clicks, in_platform_conversions, revenue,
           orders, sessions_organic, sessions_direct, sessions_email, sessions_referral.
         </div>
         <FileDropZone onFile={handleFile} />

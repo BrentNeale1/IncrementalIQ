@@ -87,7 +87,7 @@ Revenue(t) = baseline(t) + Σ [β_c × adstock_c(spend_c(t))] + Σ [γ_o × orga
 - `adstock_c` — carryover + saturation transformation on spend before model entry
 - `β_c` — channel coefficient, posterior distribution
 - `organic_o` — organic, direct, email, referral as covariates
-- `in_platform_conversions_c` — additional covariate per channel, weakly informative prior, never outcome
+- `in_platform_conversions_c` — additional covariate per channel, weakly informative prior, never outcome. **Can be excluded via `exclude_ipc` — see note below.**
 - `ε(t)` — observation noise
 
 ### Adstock transformation
@@ -118,12 +118,35 @@ Revenue is decomposed into three categories:
 1. **Paid channels** — posterior mean of (adstock-transformed spend × β_c) / total revenue
 2. **Control variables** — posterior mean of (control value × γ_o) / total revenue. Controls include:
    - `sessions_organic`, `sessions_direct`, `sessions_email`, `sessions_referral`
-   - `ipc_<channel>` (in-platform conversions per channel)
+   - `ipc_<channel>` (in-platform conversions per channel) — **unless `exclude_ipc` is set**
 3. **Baseline** — trend + seasonality (intercept + Fourier terms). This is computed as `100% - channels - controls`.
 
 Each category includes full uncertainty quantification propagated from the posterior. The `ControlPosterior` dataclass mirrors `ChannelPosterior` with gamma coefficient summaries (mean, SD, 94% HDI) and contribution (mean, pct, HDI).
 
 Previously, control contributions were hidden inside "baseline", inflating it to ~97%. Now baseline represents only trend + seasonality, and control contributions (organic sessions, direct sessions, etc.) are surfaced individually.
+
+### The IPC mediator problem and `exclude_ipc`
+
+In-platform conversions (IPC) are **mediators** in the causal chain, not confounders:
+
+```
+Ad Spend → In-Platform Conversions → Revenue
+```
+
+Because IPC is highly collinear with spend (r = 0.82–0.89 for major channels), including it as a control absorbs the paid media signal and collapses channel contributions (e.g. from ~25% to ~3%). This is a classic "bad control" problem in causal inference — controlling for a mediator attenuates the treatment effect.
+
+The `channel_config` option `"exclude_ipc": true` drops all `ipc_*` columns from controls, leaving only session controls. This allows spend coefficients to capture the full causal path through to revenue.
+
+**When to use `exclude_ipc: true`:**
+- When paid media is known to drive meaningful revenue but the model shows near-zero channel contributions
+- When IPC-to-spend correlation is high (> 0.7) for major channels
+- As the **default recommendation** for most advertisers — IPC inclusion should be the exception, not the norm
+
+**When to keep IPC:**
+- When you specifically want to estimate the *direct* effect of spend beyond what in-platform conversions explain
+- When IPC correlation with spend is low (e.g. broad awareness campaigns where conversions are lagged/indirect)
+
+**Trade-off:** Excluding IPC reduces R² (e.g. 0.57 → 0.43) because IPC is a strong predictor. The model becomes less precise but more causally correct. Wide posterior intervals are the honest reflection of uncertainty once the mediator is removed. Spend-scaling experiments are the recommended path to tighten those intervals.
 
 ### What the model must never do
 
@@ -269,7 +292,7 @@ incrementiq/
 │   │   └── models.py          # ORM: Upload, DailyRecord, QualityReport, ModelRun, ExperimentResult, ApiConnection, ApiSync
 │   ├── models/
 │   │   ├── __init__.py
-│   │   ├── data_prep.py       # DB → model-ready DataFrame (pivot, aggregate, controls, channel filtering/merging, recommend_channel_config)
+│   │   ├── data_prep.py       # DB → model-ready DataFrame (pivot, aggregate, controls, channel filtering/merging, exclude_ipc, recommend_channel_config)
 │   │   ├── mmm.py             # MMM config, build, fit, result extraction (channels + controls), mean-prediction R²/MAPE diagnostics (pymc-marketing)
 │   │   ├── service.py         # Orchestrator: data prep → fit → extract → store (accepts channel_config)
 │   │   └── validation.py      # Holdout testing, posterior predictive checks, sensitivity analysis

@@ -30,7 +30,7 @@ class ModelRunRequest(BaseModel):
     upload_id: int
     target: str = "revenue"
     adstock_l_max: int = 8
-    yearly_seasonality: int = 2
+    yearly_seasonality: int = 6
     chains: int = 4
     tune: int = 1500
     draws: int = 1000

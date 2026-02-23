@@ -33,7 +33,7 @@ MODEL_ARTIFACTS_DIR = os.environ.get("MODEL_ARTIFACTS_DIR", "model_artifacts")
 
 DEFAULT_ADSTOCK_L_MAX = 8  # max lag in days for geometric decay
 
-DEFAULT_YEARLY_SEASONALITY = 2  # Fourier modes for annual seasonality
+DEFAULT_YEARLY_SEASONALITY = 6  # Fourier modes for annual seasonality
 
 DEFAULT_SAMPLER_CONFIG = {
     "chains": 4,
@@ -246,6 +246,14 @@ def extract_results(mmm: MMM, data: PreparedData) -> ModelResults:
         total_contrib_samples = None
         total_all_channels = None
 
+    # Determine target scaler — pymc-marketing internally divides y by max(y),
+    # so channel_contribution values are in that normalized scale.  Rescale to
+    # original dollars and compute percentages against actual observed revenue.
+    target_scale = 1.0
+    if hasattr(mmm, 'scalers') and hasattr(mmm.scalers, '_target'):
+        target_scale = float(mmm.scalers._target.values)
+    total_revenue = float(data.y.sum())
+
     def _safe(row, col, default=0.0):
         if row is not None and col in row.index:
             return float(row[col])
@@ -268,12 +276,14 @@ def extract_results(mmm: MMM, data: PreparedData) -> ModelResults:
         lam_row = summary.loc[lam_key] if lam_key in summary.index else None
 
         # Channel contribution — convert to numpy to avoid xarray HDI issues
+        # Rescale from normalized to original dollars and compute % of total revenue.
         if total_contrib_samples is not None:
             ch_contrib_np = total_contrib_samples.sel(channel=ch_name).values.flatten()
-            contrib_mean = float(np.mean(ch_contrib_np))
-            contrib_hdi_low, contrib_hdi_high = _hdi_numpy(ch_contrib_np, 0.94)
-            total_mean = float(total_all_channels.values.flatten().mean())
-            contrib_pct = (contrib_mean / total_mean * 100) if total_mean > 0 else 0
+            contrib_mean = float(np.mean(ch_contrib_np)) * target_scale
+            low, high = _hdi_numpy(ch_contrib_np, 0.94)
+            contrib_hdi_low = low * target_scale
+            contrib_hdi_high = high * target_scale
+            contrib_pct = (contrib_mean / total_revenue * 100) if total_revenue > 0 else 0
         else:
             contrib_mean = 0.0
             contrib_hdi_low, contrib_hdi_high = 0.0, 0.0
@@ -357,45 +367,96 @@ def _extract_pp_samples(mmm: MMM, pp, target_var: str, n_obs: int) -> np.ndarray
     return None
 
 
+def _reconstruct_mu_draws(
+    posterior, target_scale: float, n_obs: int,
+) -> np.ndarray | None:
+    """Reconstruct noiseless predicted values (mu) per draw from contributions.
+
+    Returns array of shape (n_samples, n_obs) in original scale, or None on failure.
+    The model is: y[t] = intercept + channels[t] + controls[t] + fourier[t] + noise[t]
+    We sum contributions excluding noise to get the mean prediction per draw.
+    """
+    try:
+        ch = posterior["channel_contribution"].sum(dim="channel").values
+        ctrl = posterior["control_contribution"].sum(dim="control").values
+        fourier = posterior["yearly_seasonality_contribution"].values
+        # intercept_contribution is the per-draw intercept (constant across dates)
+        intercept = posterior["intercept_contribution"].values  # (chain, draw)
+        mu = ch + ctrl + fourier + intercept[:, :, np.newaxis]
+        return mu.reshape(-1, n_obs) * target_scale
+    except (KeyError, Exception):
+        return None
+
+
 def _compute_diagnostics(mmm: MMM, data: PreparedData, pp) -> ModelDiagnostics:
-    """Compute model fit diagnostics: R², MAPE, divergences."""
+    """Compute model fit diagnostics: R², MAPE, divergences.
+
+    R² and MAPE use the posterior mean prediction (noise-free), following
+    Gelman et al. (2019) Bayesian R² recommendations. Per-sample posterior
+    predictive draws include observation noise which inflates residuals and
+    deflates R²; the mean prediction removes this noise bias.
+
+    HDI intervals are computed from per-draw noiseless predictions
+    (reconstructed from contribution variables in the posterior).
+    """
     warnings = []
 
     y_true = data.y.values
+    n_obs = len(y_true)
 
-    y_pred_samples = _extract_pp_samples(mmm, pp, data.target_variable, len(y_true))
+    y_pred_samples = _extract_pp_samples(mmm, pp, data.target_variable, n_obs)
     if y_pred_samples is None:
         y_pred_samples = np.zeros_like(y_true).reshape(1, -1)
         warnings.append("Could not extract posterior predictive samples")
 
-    # Ensure y_pred_samples is 2D: (n_samples, n_obs)
     if y_pred_samples.ndim == 1:
         y_pred_samples = y_pred_samples.reshape(1, -1)
 
     # Rescale from normalized to original scale — pymc-marketing internally
     # divides the target by max(y), so PP samples come back in that scale.
-    if hasattr(mmm, 'scalers') and hasattr(mmm.scalers, '_target'):
-        target_scale = float(mmm.scalers._target.values)
-        if target_scale > 0:
+    target_scale = 1.0
+    if hasattr(mmm, "scalers") and hasattr(mmm.scalers, "_target"):
+        ts = float(mmm.scalers._target.values)
+        if ts > 0:
+            target_scale = ts
             y_pred_samples = y_pred_samples * target_scale
 
-    # R² distribution
-    ss_res_samples = ((y_true - y_pred_samples) ** 2).sum(axis=1)
-    ss_tot = ((y_true - y_true.mean()) ** 2).sum()
-    r2_samples = 1.0 - ss_res_samples / ss_tot
-    r2_mean = float(np.mean(r2_samples))
-    r2_hdi = _hdi_numpy(r2_samples, 0.94)
+    # Mean prediction (noise averages out across posterior draws)
+    y_pred_mean = y_pred_samples.mean(axis=0)
 
-    # MAPE distribution
+    ss_tot = ((y_true - y_true.mean()) ** 2).sum()
+
+    # R² from mean prediction
+    ss_res_mean = ((y_true - y_pred_mean) ** 2).sum()
+    r2_mean = float(1.0 - ss_res_mean / ss_tot) if ss_tot > 0 else 0.0
+
+    # R² HDI from per-draw noiseless predictions
+    mu_draws = _reconstruct_mu_draws(mmm.idata.posterior, target_scale, n_obs)
+    if mu_draws is not None:
+        r2_draws = 1.0 - ((y_true - mu_draws) ** 2).sum(axis=1) / ss_tot
+        r2_hdi = _hdi_numpy(r2_draws, 0.94)
+    else:
+        r2_hdi = (r2_mean, r2_mean)
+
+    # MAPE from mean prediction
     nonzero_mask = y_true != 0
     if nonzero_mask.any():
-        ape_samples = np.abs(
-            (y_true[nonzero_mask] - y_pred_samples[:, nonzero_mask])
+        ape_mean = np.abs(
+            (y_true[nonzero_mask] - y_pred_mean[nonzero_mask])
             / y_true[nonzero_mask]
         )
-        mape_samples = ape_samples.mean(axis=1) * 100
-        mape_mean = float(np.mean(mape_samples))
-        mape_hdi = _hdi_numpy(mape_samples, 0.94)
+        mape_mean = float(ape_mean.mean() * 100)
+
+        # MAPE HDI from per-draw noiseless predictions
+        if mu_draws is not None:
+            ape_draws = np.abs(
+                (y_true[nonzero_mask] - mu_draws[:, nonzero_mask])
+                / y_true[nonzero_mask]
+            )
+            mape_draws = ape_draws.mean(axis=1) * 100
+            mape_hdi = _hdi_numpy(mape_draws, 0.94)
+        else:
+            mape_hdi = (mape_mean, mape_mean)
     else:
         mape_mean = 0.0
         mape_hdi = (0.0, 0.0)

@@ -13,7 +13,7 @@ export default function ModelRunPage() {
     upload_id: '',
     target: 'revenue',
     adstock_l_max: 8,
-    yearly_seasonality: 2,
+    yearly_seasonality: 6,
     chains: 4,
     tune: 1500,
     draws: 1000,

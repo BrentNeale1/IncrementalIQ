@@ -98,7 +98,7 @@ def prepare_model_data(
     # Session columns are site-level metrics; take max per date to avoid
     # double-counting if they appear on multiple channel rows.
     daily = df.groupby("date").agg(
-        target_sum=(target, "sum"),
+        target_sum=(target, "max"),
         sessions_organic=("sessions_organic", "max"),
         sessions_direct=("sessions_direct", "max"),
         sessions_email=("sessions_email", "max"),

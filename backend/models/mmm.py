@@ -187,6 +187,7 @@ def fit_mmm(
         draws=config.draws,
         target_accept=config.target_accept,
         random_seed=config.random_seed,
+        nuts_sampler="nutpie",
     )
 
     logger.info("Sampling complete")
@@ -370,6 +371,13 @@ def _compute_diagnostics(mmm: MMM, data: PreparedData, pp) -> ModelDiagnostics:
     # Ensure y_pred_samples is 2D: (n_samples, n_obs)
     if y_pred_samples.ndim == 1:
         y_pred_samples = y_pred_samples.reshape(1, -1)
+
+    # Rescale from normalized to original scale — pymc-marketing internally
+    # divides the target by max(y), so PP samples come back in that scale.
+    if hasattr(mmm, 'scalers') and hasattr(mmm.scalers, '_target'):
+        target_scale = float(mmm.scalers._target.values)
+        if target_scale > 0:
+            y_pred_samples = y_pred_samples * target_scale
 
     # R² distribution
     ss_res_samples = ((y_true - y_pred_samples) ** 2).sum(axis=1)

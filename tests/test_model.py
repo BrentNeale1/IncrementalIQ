@@ -195,6 +195,50 @@ class TestDataPrep:
         for col in data.channel_columns:
             assert (data.X[col] >= 0).all()
 
+    def test_site_wide_revenue_not_inflated(self):
+        """Revenue (site-wide) must not be summed across channel rows per date.
+
+        When multiple channels share the same date, revenue is identical on
+        each row (broadcast from site-wide source).  data_prep must use "max"
+        (not "sum") to de-duplicate, so the aggregated daily revenue equals
+        the single-row value, not N × that value.
+        """
+        rng = np.random.default_rng(99)
+        days = 10
+        channels = ["google_search", "meta_feed", "google_pmax"]
+        base_date = datetime.date(2024, 1, 1)
+        daily_revenue = [round(rng.uniform(500, 2000), 2) for _ in range(days)]
+
+        rows = []
+        for i in range(days):
+            d = base_date + datetime.timedelta(days=i)
+            for ch in channels:
+                rows.append({
+                    "date": d,
+                    "channel": ch,
+                    "campaign": f"{ch}_c1",
+                    "spend": round(rng.uniform(50, 200), 2),
+                    "impressions": int(rng.uniform(500, 2000)),
+                    "clicks": int(rng.uniform(20, 100)),
+                    "in_platform_conversions": round(rng.uniform(0, 5), 2),
+                    "revenue": daily_revenue[i],  # identical across channels
+                    "orders": 10,
+                    "sessions_organic": 200,
+                    "sessions_direct": 100,
+                    "sessions_email": 50,
+                    "sessions_referral": 30,
+                })
+
+        df = pd.DataFrame(rows)
+        data = prepare_model_data(df, target="revenue")
+
+        # y should equal the per-row revenue, NOT len(channels) × that value
+        for i in range(days):
+            assert abs(data.y.iloc[i] - daily_revenue[i]) < 0.01, (
+                f"Day {i}: expected {daily_revenue[i]}, got {data.y.iloc[i]} "
+                f"(inflated {data.y.iloc[i] / daily_revenue[i]:.1f}x)"
+            )
+
     def test_prepare_from_db(self, db_session):
         df = _generate_synthetic_data(days=30)
         upload_id = _insert_records(db_session, df)

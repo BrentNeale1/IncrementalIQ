@@ -120,6 +120,13 @@ def run_holdout_validation(
     if pred_samples.shape[0] == n_test and pred_samples.shape[1] != n_test:
         pred_samples = pred_samples.T
 
+    # Rescale from normalized to original scale — pymc-marketing internally
+    # divides the target by max(y), so PP samples come back in that scale.
+    if hasattr(mmm, 'scalers') and hasattr(mmm.scalers, '_target'):
+        target_scale = float(mmm.scalers._target.values)
+        if target_scale > 0:
+            pred_samples = pred_samples * target_scale
+
     # MAPE on holdout
     nonzero = y_test != 0
     if nonzero.any():
@@ -212,6 +219,13 @@ def run_posterior_predictive_check(
         pred_samples = pred_samples.reshape(-1, pred_samples.shape[-1])
     if pred_samples.shape[0] == n_obs and pred_samples.shape[1] != n_obs:
         pred_samples = pred_samples.T
+
+    # Rescale from normalized to original scale — pymc-marketing internally
+    # divides the target by max(y), so PP samples come back in that scale.
+    if hasattr(mmm, 'scalers') and hasattr(mmm.scalers, '_target'):
+        target_scale = float(mmm.scalers._target.values)
+        if target_scale > 0:
+            pred_samples = pred_samples * target_scale
 
     y_true = data.y.values
     pred_mean = pred_samples.mean(axis=0)
